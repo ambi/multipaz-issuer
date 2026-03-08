@@ -8,16 +8,16 @@ import java.time.Instant
  * 状態遷移: PENDING → TOKEN_ISSUED → CREDENTIAL_ISSUED
  *
  * - PENDING: ブラウザで QR コード表示中。Wallet が /token を呼ぶのを待機。
- * - TOKEN_ISSUED: access_token と c_nonce を発行済み。Wallet が /credential を呼ぶのを待機。
+ * - TOKEN_ISSUED: access_token を発行済み。Wallet が /credential を呼ぶのを待機。
  * - CREDENTIAL_ISSUED: 証明書発行完了。
+ *
+ * c_nonce は [NonceStore] で独立して管理するため、このセッションには含まない。
  */
 data class IssuanceSession(
     val id: String,
     val preAuthorizedCode: String,
     val credential: PhotoIdCredential,
     val accessToken: String? = null,
-    val cNonce: String,
-    val cNonceExpiresAt: Instant,
     val state: State = State.PENDING,
     val createdAt: Instant,
     val expiresAt: Instant,

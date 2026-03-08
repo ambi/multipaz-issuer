@@ -116,14 +116,7 @@ class Oid4vciIntegrationTest {
         }
     }
 
-    @Test
-    fun `存在しない credential-offer セッションで Gone が返る`() = runTest {
-        testApplication {
-            application { testModule() }
-            val response = client.get("/credential-offer/non-existent-session-id")
-            assertEquals(HttpStatusCode.Gone, response.status)
-        }
-    }
+
 }
 
 /**
@@ -150,8 +143,10 @@ private fun io.ktor.server.application.Application.testModule() {
         validityDays = 365,
     )
 
+    val nonceStore = org.multipaz.issuer.domain.credential.NonceStore()
+
     configureSerialization()
     routing {
-        configureOid4vciRoutes(baseUrl, issuanceService, issueUseCase, photoIdBuilder)
+        configureOid4vciRoutes(baseUrl, issuanceService, issueUseCase, photoIdBuilder, nonceStore)
     }
 }

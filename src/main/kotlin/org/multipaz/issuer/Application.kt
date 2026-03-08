@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import org.multipaz.issuer.application.IssueCredentialUseCase
 import org.multipaz.issuer.domain.credential.CredentialIssuanceService
 import org.multipaz.issuer.domain.credential.InMemoryIssuanceSessionRepository
+import org.multipaz.issuer.domain.credential.NonceStore
 import org.multipaz.issuer.infrastructure.entra.EntraIdClient
 import org.multipaz.issuer.infrastructure.multipaz.IssuerKeyStore
 import org.multipaz.issuer.infrastructure.multipaz.PhotoIdBuilder
@@ -50,6 +51,7 @@ fun Application.module() {
     // ドメイン層
     val sessionRepository = InMemoryIssuanceSessionRepository()
     val issuanceService = CredentialIssuanceService(sessionRepository)
+    val nonceStore = NonceStore()
 
     // アプリケーション層
     val issueCredentialUseCase = IssueCredentialUseCase(
@@ -63,5 +65,5 @@ fun Application.module() {
     // プラグイン・ルーティングの設定
     configureSerialization()
     configureAuth(httpClient, tenantId, clientId, clientSecret, redirectUri)
-    configureRouting(baseUrl, entraIdClient, issuanceService, issueCredentialUseCase, photoIdBuilder)
+    configureRouting(baseUrl, entraIdClient, issuanceService, issueCredentialUseCase, photoIdBuilder, nonceStore)
 }

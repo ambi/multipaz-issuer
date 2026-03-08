@@ -31,7 +31,6 @@ class CredentialIssuanceServiceTest {
 
         assertEquals(IssuanceSession.State.PENDING, session.state)
         assertNotNull(session.preAuthorizedCode)
-        assertNotNull(session.cNonce)
         assertNotNull(session.id)
     }
 

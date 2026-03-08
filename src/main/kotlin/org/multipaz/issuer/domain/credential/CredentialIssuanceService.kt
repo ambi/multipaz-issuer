@@ -12,9 +12,11 @@ import kotlin.time.toJavaDuration
  * OID4VCI Pre-Authorized Code フローを管理するドメインサービス。
  *
  * 1. [createSession] - ブラウザ側で証明書発行を開始する。pre-authorized_code を生成してセッションを作成。
- * 2. [exchangePreAuthorizedCode] - Wallet が /token を呼んだとき。access_token + c_nonce を発行。
- * 3. [findSessionByAccessToken] - Wallet が /credential を呼んだとき。セッションを取得して証明書を検証・発行。
+ * 2. [exchangePreAuthorizedCode] - Wallet が /token を呼んだとき。access_token を発行。
+ * 3. [findSessionByAccessToken] - Wallet が /credential を呼んだとき。セッションを取得。
  * 4. [markCredentialIssued] - 証明書発行後にセッション状態を更新。
+ *
+ * c_nonce は [NonceStore] で独立して管理する。
  */
 class CredentialIssuanceService(
     private val repository: IssuanceSessionRepository,
@@ -27,8 +29,6 @@ class CredentialIssuanceService(
             id = UUID.randomUUID().toString(),
             preAuthorizedCode = generateSecureToken(),
             credential = credential,
-            cNonce = generateSecureToken(),
-            cNonceExpiresAt = now.plus(tokenTtl.toJavaDuration()),
             createdAt = now,
             expiresAt = now.plus(sessionTtl.toJavaDuration()),
         )
@@ -37,7 +37,7 @@ class CredentialIssuanceService(
     }
 
     /**
-     * pre-authorized_code を検証し、access_token と新しい c_nonce を発行する。
+     * pre-authorized_code を検証し、access_token を発行する。
      * @return 発行した access_token とセッション。コードが無効・期限切れの場合は null。
      */
     suspend fun exchangePreAuthorizedCode(code: String): Pair<String, IssuanceSession>? {
@@ -48,11 +48,8 @@ class CredentialIssuanceService(
             return null
         }
 
-        val now = Instant.now()
         val updated = session.copy(
             accessToken = generateSecureToken(),
-            cNonce = generateSecureToken(),
-            cNonceExpiresAt = now.plus(tokenTtl.toJavaDuration()),
             state = IssuanceSession.State.TOKEN_ISSUED,
         )
         repository.update(updated)

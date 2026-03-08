@@ -53,7 +53,8 @@ class PhotoIdBuilder(private val keyStore: IssuerKeyStore) {
         credential: PhotoIdCredential,
         holderPublicKey: EcPublicKey,
     ): String {
-        val now = Clock.System.now()
+        // MobileSecurityObject は signedAt に秒単位（ナノ秒なし）を要求するため切り捨て
+        val now = kotlinx.datetime.Instant.fromEpochSeconds(Clock.System.now().epochSeconds)
         val validFrom = now
         val validUntil = credential.expiryDate.atStartOfDayIn(TimeZone.UTC)
 
@@ -147,6 +148,19 @@ class PhotoIdBuilder(private val keyStore: IssuerKeyStore) {
      */
     fun ecPublicKeyFromCoordinates(xBytes: ByteArray, yBytes: ByteArray): EcPublicKey {
         return EcPublicKeyDoubleCoordinate(EcCurve.P256, normalize32(xBytes), normalize32(yBytes))
+    }
+
+    /**
+     * 発行者署名鍵の EC 公開鍵を JWK Set JSON として返す（/jwks エンドポイント用）。
+     */
+    fun buildJwkSetJson(): String {
+        val ecPubKey = keyStore.certificate.publicKey as java.security.interfaces.ECPublicKey
+        val w = ecPubKey.w
+        val xB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(normalize32(w.affineX.toByteArray()))
+        val yB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(normalize32(w.affineY.toByteArray()))
+        return """{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","x":"$xB64","y":"$yB64"}]}"""
     }
 
     private fun normalize32(bytes: ByteArray): ByteArray = when {

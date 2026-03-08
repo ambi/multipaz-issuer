@@ -8,6 +8,7 @@ import freemarker.cache.ClassTemplateLoader
 import io.ktor.server.routing.routing
 import org.multipaz.issuer.application.IssueCredentialUseCase
 import org.multipaz.issuer.domain.credential.CredentialIssuanceService
+import org.multipaz.issuer.domain.credential.NonceStore
 import org.multipaz.issuer.infrastructure.entra.EntraIdClient
 import org.multipaz.issuer.infrastructure.multipaz.PhotoIdBuilder
 import org.multipaz.issuer.web.routes.configureAuthRoutes
@@ -21,6 +22,7 @@ fun Application.configureRouting(
     issuanceService: CredentialIssuanceService,
     issueCredentialUseCase: IssueCredentialUseCase,
     photoIdBuilder: PhotoIdBuilder,
+    nonceStore: NonceStore,
 ) {
     install(FreeMarker) {
         templateLoader = ClassTemplateLoader(this::class.java.classLoader, "templates")
@@ -33,6 +35,6 @@ fun Application.configureRouting(
     routing {
         configureHomeRoutes()
         configureAuthRoutes(entraIdClient)
-        configureOid4vciRoutes(baseUrl, issuanceService, issueCredentialUseCase, photoIdBuilder)
+        configureOid4vciRoutes(baseUrl, issuanceService, issueCredentialUseCase, photoIdBuilder, nonceStore)
     }
 }

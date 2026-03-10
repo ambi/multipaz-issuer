@@ -13,4 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "multipaz-issuer"
+rootProject.name = "vdc-apps"
+
+include("issuer", "verifier")

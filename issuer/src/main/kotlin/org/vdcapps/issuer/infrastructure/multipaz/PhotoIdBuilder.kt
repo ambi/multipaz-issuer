@@ -55,7 +55,7 @@ class PhotoIdBuilder(
         holderPublicKey: EcPublicKey,
     ): String {
         // MobileSecurityObject は signedAt に秒単位（ナノ秒なし）を要求するため切り捨て
-        val now = kotlinx.datetime.Instant.fromEpochSeconds(Clock.System.now().epochSeconds)
+        val now = kotlin.time.Instant.fromEpochSeconds(Clock.System.now().epochSeconds)
         val validFrom = now
         val validUntil = credential.expiryDate.atStartOfDayIn(TimeZone.UTC)
 

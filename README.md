@@ -413,17 +413,17 @@ PORT=8081
 ./verifier/build/install/verifier/bin/verifier
 ```
 
-### ngrok でローカル開発（HTTPS が必要な場合）
+### cloudflared でローカル開発（HTTPS が必要な場合）
 
-Entra ID のリダイレクト URI は HTTPS が必要なため、ngrok を使う。
+ウォレットアプリが Issuer と通信できるように HTTPS で公開するために、cloudflared を使う。
 
 ```bash
 # Issuer を HTTPS で公開
-ngrok http 8080
+cloudflared tunnel --url http://localhost:8080
 # → BASE_URL と ENTRA_REDIRECT_URI をその URL に設定
 
-# Verifier を HTTPS で公開（Digital Credentials API に HTTPS 必須の場合）
-ngrok http 8081
+# Verifier を HTTPS で公開
+cloudflared tunnel --url http://localhost:8081
 # → BASE_URL をその URL に設定
 ```
 

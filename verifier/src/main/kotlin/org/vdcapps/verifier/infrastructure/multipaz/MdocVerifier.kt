@@ -157,11 +157,37 @@ class MdocVerifier {
                     add(Bstr(payloadBytes))
                 },
             )
+        // COSE ES256 の署名は raw 形式（r || s、各 32 バイト）。
+        // Java の SHA256withECDSA は DER/ASN.1 形式を要求するため変換する。
+        val derSig = rawEcdsaSignatureToDer(signatureBytes)
         val sig = Signature.getInstance("SHA256withECDSA")
         sig.initVerify(cert.publicKey)
         sig.update(sigStructureBytes)
-        if (!sig.verify(signatureBytes)) throw IllegalArgumentException("COSE_Sign1 署名の検証に失敗しました")
+        if (!sig.verify(derSig)) throw IllegalArgumentException("COSE_Sign1 署名の検証に失敗しました")
         logger.debug("COSE_Sign1 署名検証 OK")
+    }
+
+    /**
+     * COSE raw ECDSA 署名（r || s、各 32 バイト）を Java Signature API が受け入れる
+     * DER/ASN.1 形式（SEQUENCE { INTEGER r, INTEGER s }）に変換する。
+     */
+    private fun rawEcdsaSignatureToDer(rawSig: ByteArray): ByteArray {
+        require(rawSig.size == 64) { "P-256 raw 署名は 64 バイトのはずですが ${rawSig.size} バイトです" }
+
+        fun encodeAsn1Integer(bytes: ByteArray): ByteArray {
+            // 先頭の 0x00 を除去（ただし 1 バイト以上残す）
+            var start = 0
+            while (start < bytes.size - 1 && bytes[start] == 0.toByte()) start++
+            val trimmed = bytes.copyOfRange(start, bytes.size)
+            // 最上位ビットが立っている場合は正の整数を示す 0x00 を前置する
+            val padded = if (trimmed[0].toInt() and 0x80 != 0) byteArrayOf(0x00) + trimmed else trimmed
+            return byteArrayOf(0x02.toByte(), padded.size.toByte()) + padded
+        }
+
+        val r = encodeAsn1Integer(rawSig.copyOfRange(0, 32))
+        val s = encodeAsn1Integer(rawSig.copyOfRange(32, 64))
+        val content = r + s
+        return byteArrayOf(0x30.toByte(), content.size.toByte()) + content
     }
 
     // ---- クレーム抽出 ----

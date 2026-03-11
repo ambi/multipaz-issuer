@@ -16,6 +16,10 @@ import io.ktor.server.routing.post
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -32,7 +36,7 @@ import java.net.URLEncoder
 private val logger = LoggerFactory.getLogger("VerifierRoutes")
 private val json = Json { ignoreUnknownKeys = true }
 
-// ISO/IEC TS 23220-4 Photo ID のネームスペース
+private const val PHOTO_ID_DOCTYPE = "org.iso.23220.photoid.1"
 private const val NAMESPACE_23220_2 = "org.iso.23220.2"
 
 fun Route.configureVerifierRoutes(
@@ -59,7 +63,7 @@ fun Route.configureVerifierRoutes(
                     "qrCodeBase64" to generateQrBase64(oid4vpUri),
                     "oid4vpUri" to oid4vpUri,
                     "baseUrl" to baseUrl,
-                    "presentationDefinitionJson" to buildPresentationDefinition(session.id).toString(),
+                    "dcqlQueryJson" to buildDcqlQuery().toString(),
                     "nonce" to session.nonce,
                 ),
             ),
@@ -107,12 +111,25 @@ fun Route.configureVerifierRoutes(
         val (vpToken, state) =
             if (contentType.contains("application/json")) {
                 val body = json.parseToJsonElement(call.receiveText()).jsonObject
-                val vp = body["vp_token"]?.jsonPrimitive?.content
+                val vp = extractVpToken(body["vp_token"])
                 val s = body["state"]?.jsonPrimitive?.content
                 vp to s
             } else {
                 val params = call.receiveParameters()
-                params["vp_token"] to params["state"]
+                // direct_post の vp_token は DCQL 応答では JSON 文字列になる場合がある
+                val rawVp = params["vp_token"]
+                val vp =
+                    if (rawVp != null) {
+                        try {
+                            extractVpToken(json.parseToJsonElement(rawVp))
+                        } catch (_: Exception) {
+                            // JSON としてパースできなかった場合は plain base64url として扱う
+                            extractVpToken(JsonPrimitive(rawVp))
+                        }
+                    } else {
+                        null
+                    }
+                vp to params["state"]
             }
 
         if (vpToken.isNullOrBlank()) {
@@ -259,42 +276,79 @@ private fun buildAuthorizationRequest(
     put("response_uri", responseUri)
     put("nonce", session.nonce)
     put("state", session.id)
-    put("presentation_definition", buildPresentationDefinition(session.id))
+    put("dcql_query", buildDcqlQuery())
 }
 
-/** Photo ID (org.iso.23220.photoid.1) を要求する Presentation Definition を構築する。 */
-private fun buildPresentationDefinition(sessionId: String) =
+/**
+ * Photo ID (org.iso.23220.photoid.1) を要求する DCQL クエリを構築する。
+ * Multipaz Compose Wallet は OID4VP の presentation_definition ではなく
+ * DCQL (dcql_query) を使用する。
+ */
+private fun buildDcqlQuery() =
     buildJsonObject {
-        put("id", "photo-id-request-$sessionId")
-        putJsonArray("input_descriptors") {
+        putJsonArray("credentials") {
             add(
                 buildJsonObject {
                     put("id", "photo-id")
-                    putJsonObject("format") {
-                        putJsonObject("mso_mdoc") {
-                            putJsonArray("alg") { add(kotlinx.serialization.json.JsonPrimitive("ES256")) }
-                        }
+                    put("format", "mso_mdoc")
+                    putJsonObject("meta") {
+                        put("doctype_value", PHOTO_ID_DOCTYPE)
                     }
-                    putJsonObject("constraints") {
-                        putJsonArray("fields") {
-                            // 最低限の必須クレームを要求
-                            for (path in listOf(
-                                "\$['$NAMESPACE_23220_2']['family_name']",
-                                "\$['$NAMESPACE_23220_2']['given_name']",
-                                "\$['$NAMESPACE_23220_2']['birth_date']",
-                            )) {
-                                add(
-                                    buildJsonObject {
-                                        putJsonArray("path") { add(kotlinx.serialization.json.JsonPrimitive(path)) }
-                                        put("intent_to_retain", false)
-                                    },
-                                )
-                            }
+                    putJsonArray("claims") {
+                        for ((ns, name) in listOf(
+                            NAMESPACE_23220_2 to "family_name",
+                            NAMESPACE_23220_2 to "given_name",
+                            NAMESPACE_23220_2 to "birth_date",
+                        )) {
+                            add(
+                                buildJsonObject {
+                                    putJsonArray("path") {
+                                        add(JsonPrimitive(ns))
+                                        add(JsonPrimitive(name))
+                                    }
+                                    put("intent_to_retain", false)
+                                },
+                            )
                         }
                     }
                 },
             )
         }
+    }
+
+/**
+ * vp_token を base64url 文字列に正規化する。
+ *
+ * Multipaz Wallet が送る可能性がある形式：
+ * - plain base64url 文字列 (旧形式)
+ * - DCQL オブジェクト: { "photo-id": "<base64url>" }
+ * - DCQL オブジェクト: { "photo-id": ["<base64url>"] }
+ * - 上記オブジェクトを JSON 文字列にシリアライズした JsonPrimitive（二重エンコード）
+ */
+private fun extractVpToken(element: JsonElement?): String? =
+    when (element) {
+        is JsonPrimitive -> {
+            val content = element.content
+            // JSON オブジェクト/配列が文字列にシリアライズされている場合は再帰的に解決
+            if (content.startsWith("{") || content.startsWith("[")) {
+                try {
+                    extractVpToken(json.parseToJsonElement(content))
+                } catch (_: Exception) {
+                    content
+                }
+            } else {
+                content
+            }
+        }
+        is JsonObject ->
+            element.values.firstOrNull()?.let { v ->
+                when (v) {
+                    is JsonPrimitive -> v.content
+                    is JsonArray -> v.firstOrNull()?.jsonPrimitive?.content
+                    else -> null
+                }
+            }
+        else -> null
     }
 
 /**

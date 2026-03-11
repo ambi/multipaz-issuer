@@ -68,7 +68,7 @@
     const sessionId = "${sessionId}";
     const baseUrl = "${baseUrl}";
     const nonce = "${nonce}";
-    const presentationDefinition = ${presentationDefinitionJson};
+    const dcqlQuery = ${dcqlQueryJson};
 
     async function requestDcApi() {
         const btn = document.getElementById("dcApiBtn");
@@ -97,14 +97,18 @@
                             response_uri: baseUrl + "/verifier/response",
                             nonce: nonce,
                             state: sessionId,
-                            presentation_definition: presentationDefinition,
+                            dcql_query: dcqlQuery,
                         }
                     }]
                 }
             });
 
             // Wallet からのレスポンスを Verifier に送信
-            const vpToken = credential.data?.vp_token || credential.token || JSON.stringify(credential);
+            // DCQL 応答: credential.data が { "photo-id": "<base64>" } の場合と plain string の場合に対応
+            const rawVpToken = credential.data?.vp_token ?? credential.token ?? credential.data;
+            const vpToken = (rawVpToken && typeof rawVpToken === "object")
+                ? JSON.stringify(rawVpToken)
+                : rawVpToken ?? JSON.stringify(credential);
             const resp = await fetch(baseUrl + "/verifier/response", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

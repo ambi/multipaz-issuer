@@ -1,9 +1,11 @@
+.git/
 .gradle/
 build/
 *.p12
 *.jks
-local.properties
+*.md
 .env
-*.class
+deploy/
 deploy-dist/
+scripts/
 .DS_Store

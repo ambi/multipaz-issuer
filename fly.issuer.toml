@@ -1,0 +1,35 @@
+app = "vdc-apps-issuer"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile.issuer"
+
+[env]
+  PORT = "8080"
+  ISSUING_COUNTRY = "JP"
+  ISSUING_AUTHORITY = "VDC Apps Issuer"
+  KEY_STORE_PATH = "/app/data/issuer-keystore.p12"
+  KEY_STORE_PASSWORD = "changeit"
+
+# Secrets (set via: fly secrets set -c fly.issuer.toml KEY=VALUE)
+# ENTRA_TENANT_ID
+# ENTRA_CLIENT_ID
+# ENTRA_CLIENT_SECRET
+# BASE_URL        (set after first deploy: https://<app-name>.fly.dev)
+# ENTRA_REDIRECT_URI  (https://<app-name>.fly.dev/auth/callback)
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[mounts]
+  source = "issuer_data"
+  destination = "/app/data"

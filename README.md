@@ -427,6 +427,53 @@ ngrok http 8081
 # → BASE_URL をその URL に設定
 ```
 
+### fly.io デプロイ手順
+
+```shell
+# 初回（アプリ名は fly.toml に合わせて変更）
+fly apps create vdc-apps-issuer
+fly apps create vdc-apps-verifier
+
+# Secrets 設定（issuer）
+fly secrets set -c fly.issuer.toml \
+  ENTRA_TENANT_ID=xxx \
+  ENTRA_CLIENT_ID=xxx \
+  ENTRA_CLIENT_SECRET=xxx
+
+# デプロイ（リポジトリ root から実行）
+fly deploy -c fly.issuer.toml
+fly deploy -c fly.verifier.toml
+
+# デプロイ後に BASE_URL を設定
+fly secrets set -c fly.issuer.toml \
+  BASE_URL=https://vdc-apps-issuer.fly.dev \
+  ENTRA_REDIRECT_URI=https://vdc-apps-issuer.fly.dev/auth/callback
+fly secrets set -c fly.verifier.toml \
+  BASE_URL=https://vdc-apps-verifier.fly.dev
+```
+
+キーストアの永続化のため `fly.issuer.toml` には Volume マウント (`/app/data`) を設定済みです。初回デプロイ前に `fly volumes create issuer_data --region nrt -c fly.issuer.toml` が必要です。
+
+### AWS Elastic Beanstalk デプロイ手順
+
+プラットフォーム: `64bit Amazon Linux 2023 v4.x.x running Corretto 21`
+
+```shell
+# ZIP 作成
+./scripts/eb-package.sh issuer
+./scripts/eb-package.sh verifier
+
+# EB 環境へ機密情報を設定（issuer）
+eb setenv ENTRA_TENANT_ID=xxx ENTRA_CLIENT_ID=xxx ENTRA_CLIENT_SECRET=xxx \
+          BASE_URL=https://xxx.elasticbeanstalk.com \
+          ENTRA_REDIRECT_URI=https://xxx.elasticbeanstalk.com/auth/callback
+
+# デプロイ
+eb deploy   # または AWS コンソールから ZIP をアップロード
+```
+
+EB の BASE_URL は EB 環境作成後に判明するため、デプロイ → URL 確認 → eb setenv → 再デプロイ の順になります。
+
 ---
 
 ## 設計上の判断と制約

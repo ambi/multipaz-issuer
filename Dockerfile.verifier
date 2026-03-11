@@ -1,0 +1,24 @@
+FROM eclipse-temurin:21-jdk-jammy AS builder
+WORKDIR /workspace
+
+# Copy Gradle wrapper and build config (dependency cache layer)
+COPY gradlew .
+COPY gradle/ gradle/
+COPY gradle.properties .
+COPY settings.gradle.kts .
+COPY build.gradle.kts .
+COPY issuer/build.gradle.kts issuer/build.gradle.kts
+COPY verifier/build.gradle.kts verifier/build.gradle.kts
+
+RUN ./gradlew :verifier:dependencies --no-daemon -q
+
+# Copy source and build
+COPY verifier/src verifier/src
+RUN ./gradlew :verifier:installDist --no-daemon
+
+FROM eclipse-temurin:21-jre-jammy
+WORKDIR /app
+COPY --from=builder /workspace/verifier/build/install/verifier/ .
+EXPOSE 8080
+ENV PORT=8080
+CMD ["bin/verifier"]

@@ -1,0 +1,23 @@
+app = "vdc-apps-verifier"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile.verifier"
+
+[env]
+  PORT = "8080"
+
+# Secrets (set via: fly secrets set -c fly.verifier.toml KEY=VALUE)
+# BASE_URL  (set after first deploy: https://<app-name>.fly.dev)
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

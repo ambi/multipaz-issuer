@@ -58,7 +58,7 @@ ENTRA_REDIRECT_URI=https://your-domain.example.com/auth/callback
 KEY_STORE_PATH=issuer-keystore.p12          # 初回起動時に自動生成
 KEY_STORE_PASSWORD=changeit
 ISSUING_COUNTRY=JP
-ISSUING_AUTHORITY="Multipaz Issuer"
+ISSUING_AUTHORITY="VDC Apps Issuer"
 ```
 
 Azure でのアプリ登録時に必要な設定:

@@ -59,7 +59,7 @@ class IssuerKeyStore(
         logger.info("発行者キーを生成します: $keyStorePath")
         val keyPair = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         val now = System.currentTimeMillis()
-        val subject = X500Name("CN=Multipaz Issuer, O=Multipaz, C=JP")
+        val subject = X500Name("CN=VDC Apps Issuer, O=VDC Apps, C=JP")
 
         val certHolder =
             X509v3CertificateBuilder(

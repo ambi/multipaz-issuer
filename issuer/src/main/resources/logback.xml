@@ -9,6 +9,6 @@
         <appender-ref ref="STDOUT"/>
     </root>
 
-    <logger name="org.multipaz.issuer" level="DEBUG"/>
+    <logger name="org.vdcapps.issuer" level="DEBUG"/>
     <logger name="io.ktor" level="INFO"/>
 </configuration>

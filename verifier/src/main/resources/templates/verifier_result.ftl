@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>検証結果 - Multipaz Verifier</title>
+    <title>検証結果 - Photo IDVerifier</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 </head>
 <body>
 <nav class="navbar navbar-dark bg-success">
     <div class="container">
-        <span class="navbar-brand fw-bold">Multipaz Photo ID Verifier</span>
+        <span class="navbar-brand fw-bold">Photo ID Verifier</span>
         <a href="/verifier" class="btn btn-outline-light btn-sm">新しい検証</a>
     </div>
 </nav>

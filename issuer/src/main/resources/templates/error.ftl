@@ -4,21 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>エラー - Photo ID Issuer</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-<nav class="navbar navbar-dark bg-primary">
-    <div class="container">
-        <span class="navbar-brand fw-bold">Photo ID Issuer</span>
+<body class="bg-slate-50 min-h-screen">
+
+<nav class="bg-indigo-600 shadow-md">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center">
+        <span class="text-white font-bold text-lg tracking-tight">Photo ID Issuer</span>
     </div>
 </nav>
 
-<div class="container mt-5" style="max-width: 600px;">
-    <div class="alert alert-danger">
-        <h4 class="alert-heading">エラーが発生しました</h4>
-        <p>${message!"予期しないエラーが発生しました。"}</p>
+<main class="max-w-lg mx-auto px-4 py-16">
+    <div class="bg-white rounded-2xl shadow-sm border border-red-100 p-8 text-center">
+        <div class="text-5xl mb-4">⚠️</div>
+        <h2 class="text-xl font-bold text-slate-800 mb-2">エラーが発生しました</h2>
+        <p class="text-slate-500 text-sm mb-6">${message!"予期しないエラーが発生しました。"}</p>
+        <a href="/"
+           class="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-6 py-2 rounded-lg transition-colors text-sm">
+            ホームに戻る
+        </a>
     </div>
-    <a href="/" class="btn btn-primary">ホームに戻る</a>
-</div>
+</main>
+
 </body>
 </html>

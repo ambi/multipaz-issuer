@@ -12,6 +12,7 @@ ISO/IEC TS 23220-4 Photo ID の Verifiable Credential (mdoc 形式) の **Issuer
   - プロトコル: OID4VP（QR コードフロー）+ Digital Credentials API（ブラウザフロー）
 - **VC フォーマット**: `mso_mdoc`、doctype `org.iso.23220.photoid.1`
 - **ライブラリ**: Multipaz 0.97.0 (GMaven `google()`)、Ktor 3.0.3 + Netty
+- **CSSフレームワーク**: Tailwind
 - **Wallet**: Multipaz Compose Wallet で VC の発行・提示を検証済み前提
 
 ## プロジェクト構成

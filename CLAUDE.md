@@ -60,6 +60,7 @@ KEY_STORE_PATH=issuer-keystore.p12          # 初回起動時に自動生成
 KEY_STORE_PASSWORD=changeit
 ISSUING_COUNTRY=JP
 ISSUING_AUTHORITY="VDC Apps Issuer"
+REDIS_URL=redis://localhost:6379            # 未設定時はインメモリ（issuer/verifier 共通）
 ```
 
 Azure でのアプリ登録時に必要な設定:
@@ -81,12 +82,13 @@ domain/
   credential/IssuanceSession.kt          # OID4VCI セッション状態機械 (PENDING→TOKEN_ISSUED→CREDENTIAL_ISSUED)
   credential/CredentialIssuanceService.kt# pre-authorized_code / access_token 管理
   credential/IssuanceSessionRepository.kt# インターフェース + InMemory 実装
-  credential/NonceStore.kt               # c_nonce の生成・検証
+  credential/NonceStore.kt               # c_nonce のステートレス発行・検証（HMAC-SHA256）
 
 infrastructure/
   entra/EntraIdClient.kt                 # MS Graph API で displayName/surname/photo を取得
   multipaz/IssuerKeyStore.kt             # 発行者署名鍵 (P-256 EC) を PKCS12 に永続化、初回自動生成
   multipaz/PhotoIdBuilder.kt             # Multipaz API で IssuerNamespaces→MSO→COSE_Sign1 を組み立て
+  redis/RedisIssuanceSessionRepository.kt# Redis 実装（REDIS_URL 設定時に使用）
 
 application/
   IssueCredentialUseCase.kt              # 証明書発行のユースケース
@@ -113,6 +115,7 @@ domain/
 
 infrastructure/
   multipaz/MdocVerifier.kt                    # DeviceResponse CBOR を検証し VerificationResult を返す
+  redis/RedisVerificationSessionRepository.kt # Redis 実装（REDIS_URL 設定時に使用）
 
 application/
   VerifyCredentialUseCase.kt                  # 証明書検証のユースケース
@@ -211,7 +214,7 @@ IssuerSignedItem = { "digestID": uint, "random": bstr, "elementIdentifier": tstr
 
 - **生年月日**: Entra ID の標準属性には含まれないため、ブラウザ UI でユーザーに入力させる
 - **顔写真**: Graph API `/me/photo/$value` から取得。未設定の場合は portrait 要素を省略（optional）
-- **セッション管理**: InMemory 実装は再起動でリセット。本番では永続化ストアに差し替える
+- **セッション管理**: `REDIS_URL` 設定で Redis、未設定でインメモリ。InMemory は再起動でリセット
 - **発行者鍵**: 自己署名証明書。本番では CA 署名の証明書チェーンに差し替える
 - **Verifier の証明書信頼**: 現状は VC に含まれる x5chain 証明書の署名を直接信頼。本番では IACA (Issuing Authority Certificate Authority) のルート証明書で検証する
 - **Multipaz のリポジトリ**: `google()` (GMaven) に publish されている

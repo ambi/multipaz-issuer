@@ -350,7 +350,7 @@ private fun JsonObject.extractProofJwt(): String? {
  * - ヘッダーの jwk が EC P-256 鍵であること
  * - JWT 署名が jwk で正しく検証できること
  * - aud が baseUrl であること
- * - nonce が NonceStore に存在すること（one-time use）
+ * - nonce の HMAC 署名が正しく有効期限内であること
  * - iat が 5 分以内であること
  */
 private fun validateProofJwt(
@@ -384,7 +384,7 @@ private fun validateProofJwt(
     val nonce =
         claims.getStringClaim("nonce")
             ?: throw IllegalArgumentException("proof JWT に nonce がありません")
-    if (!nonceStore.consume(nonce)) {
+    if (!nonceStore.verify(nonce)) {
         throw IllegalArgumentException("proof JWT の nonce が無効または期限切れです")
     }
 

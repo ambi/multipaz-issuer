@@ -65,6 +65,9 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.zxing:javase:3.5.3")
 
+    // Redis client
+    implementation("redis.clients:jedis:5.2.0")
+
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.12")
 

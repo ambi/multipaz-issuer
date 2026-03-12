@@ -9,10 +9,12 @@ import kotlinx.serialization.json.Json
 import org.vdcapps.issuer.application.IssueCredentialUseCase
 import org.vdcapps.issuer.domain.credential.CredentialIssuanceService
 import org.vdcapps.issuer.domain.credential.InMemoryIssuanceSessionRepository
+import org.vdcapps.issuer.domain.credential.IssuanceSessionRepository
 import org.vdcapps.issuer.domain.credential.NonceStore
 import org.vdcapps.issuer.infrastructure.entra.EntraIdClient
 import org.vdcapps.issuer.infrastructure.multipaz.IssuerKeyStore
 import org.vdcapps.issuer.infrastructure.multipaz.PhotoIdBuilder
+import org.vdcapps.issuer.infrastructure.redis.RedisIssuanceSessionRepository
 import org.vdcapps.issuer.web.plugins.configureAuth
 import org.vdcapps.issuer.web.plugins.configureRouting
 import org.vdcapps.issuer.web.plugins.configureSerialization
@@ -51,7 +53,15 @@ fun Application.module() {
     val entraIdClient = EntraIdClient(httpClient)
 
     // ドメイン層
-    val issuanceRepository = InMemoryIssuanceSessionRepository()
+    val redisUrl = config.propertyOrNull("session.redisUrl")?.getString()?.takeIf { it.isNotBlank() }
+    val issuanceRepository: IssuanceSessionRepository =
+        if (redisUrl != null) {
+            RedisIssuanceSessionRepository(redisUrl).also { repo ->
+                environment.monitor.subscribe(io.ktor.server.application.ApplicationStopped) { repo.close() }
+            }
+        } else {
+            InMemoryIssuanceSessionRepository()
+        }
     val issuanceService = CredentialIssuanceService(issuanceRepository)
     val nonceStore = NonceStore()
 

@@ -28,7 +28,7 @@ val micrometerVersion = "1.13.9"
 val multipazVersion = "0.97.0"
 val kotlinxSerializationVersion = "1.7.3"
 val kotlinxDatetimeVersion = "0.6.1"
-val kotlinxCoroutinesVersion = "1.9.0"
+val kotlinxCoroutinesVersion = "1.10.2"
 
 dependencies {
     // Multipaz: credential building and mdoc utilities

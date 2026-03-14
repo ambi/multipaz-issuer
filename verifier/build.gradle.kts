@@ -23,7 +23,7 @@ tasks.withType<JavaCompile>().configureEach {
     targetCompatibility = "21"
 }
 
-val ktorVersion = "3.0.3"
+val ktorVersion = "3.4.1"
 val micrometerVersion = "1.13.9"
 val multipazVersion = "0.97.0"
 val kotlinxSerializationVersion = "1.7.3"

@@ -36,7 +36,7 @@ class VerifyCredentialUseCase(
                 Base64.getUrlDecoder().decode(
                     vpToken.trimEnd('='), // パディングが付いている場合も許容
                 )
-            val result = mdocVerifier.verify(deviceResponseBytes)
+            val result = mdocVerifier.verify(deviceResponseBytes, session.nonce)
             verificationService.markVerified(session, result)
             result
         } catch (e: Exception) {

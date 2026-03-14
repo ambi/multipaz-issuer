@@ -43,6 +43,53 @@ import java.util.Base64
 private val logger = LoggerFactory.getLogger("Oid4vciRoutes")
 private val json = Json { ignoreUnknownKeys = true }
 
+/**
+ * IP ベースのスライディングウィンドウ式レート制限。
+ * キーは "<エンドポイント>:<IP>" の形式。
+ * テストからリセットできるよう internal にする。
+ */
+internal object RateLimiter {
+    private val windows = java.util.concurrent.ConcurrentHashMap<String, ArrayDeque<Long>>()
+    private const val WINDOW_MS = 60_000L
+
+    /** テスト用: すべてのウィンドウをクリアする。本番コードからは呼ばないこと。 */
+    fun clearForTesting() {
+        windows.clear()
+    }
+
+    fun isAllowed(
+        key: String,
+        maxPerWindow: Int,
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        // マップが肥大化した場合にエントリを掃除する
+        if (windows.size > 50_000) {
+            val cutoff = now - WINDOW_MS
+            windows.entries.removeIf { (_, deque) ->
+                synchronized(deque) { deque.isEmpty() || deque.last() < cutoff }
+            }
+        }
+        val deque = windows.getOrPut(key) { ArrayDeque() }
+        synchronized(deque) {
+            val cutoff = now - WINDOW_MS
+            while (deque.isNotEmpty() && deque.first() < cutoff) deque.removeFirst()
+            if (deque.size >= maxPerWindow) return false
+            deque.addLast(now)
+            return true
+        }
+    }
+}
+
+/** リクエスト元 IP を取得する。リバースプロキシ経由の場合は X-Forwarded-For を優先。 */
+private fun io.ktor.server.application.ApplicationCall.clientIp(): String {
+    val forwardedFor = request.headers["X-Forwarded-For"]
+    if (!forwardedFor.isNullOrBlank()) {
+        val first = forwardedFor.split(",").firstOrNull()?.trim()
+        if (!first.isNullOrBlank()) return first
+    }
+    return request.local.remoteHost
+}
+
 fun Route.configureOid4vciRoutes(
     baseUrl: String,
     issuanceService: CredentialIssuanceService,
@@ -59,6 +106,15 @@ fun Route.configureOid4vciRoutes(
                 ?: return@post call.respondRedirect("/")
 
         val params = call.receiveParameters()
+
+        // CSRF トークン検証（SameSite=Strict に加えた多層防御）
+        val submittedCsrf = params["_csrf"]
+        if (submittedCsrf != userSession.csrfToken) {
+            logger.warn("CSRF トークン不正: sessionUserId=${userSession.userId}")
+            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "不正なリクエストです。再度ログインしてください。"))
+            return@post
+        }
+
         val familyName = params["familyName"]?.trim().orEmpty()
         val givenName = params["givenName"]?.trim().orEmpty()
         val birthDateStr = params["birthDate"]?.trim().orEmpty()
@@ -72,6 +128,7 @@ fun Route.configureOid4vciRoutes(
                     "familyName" to userSession.familyName,
                     "email" to (userSession.email ?: ""),
                     "hasPhoto" to userSession.hasPhoto,
+                    "csrfToken" to userSession.csrfToken,
                     "error" to msg,
                 ),
             )
@@ -88,6 +145,18 @@ fun Route.configureOid4vciRoutes(
                 call.respond(profileError("生年月日の形式が正しくありません。"))
                 return@post
             }
+
+        // 生年月日の論理的バリデーション
+        val today = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
+        val birthDateJava = java.time.LocalDate.of(birthDate.year, birthDate.monthNumber, birthDate.dayOfMonth)
+        if (birthDateJava.isAfter(today)) {
+            call.respond(profileError("生年月日は未来の日付にできません。"))
+            return@post
+        }
+        if (birthDateJava.isBefore(today.minusYears(150))) {
+            call.respond(profileError("生年月日の値が不正です。"))
+            return@post
+        }
 
         val entraUser =
             org.vdcapps.issuer.domain.identity.EntraUser(
@@ -170,6 +239,10 @@ fun Route.configureOid4vciRoutes(
      * 認証不要。Wallet が /credential リクエスト前の proof JWT 生成に使う c_nonce を取得する。
      */
     post("/nonce") {
+        if (!RateLimiter.isAllowed("nonce:${call.clientIp()}", 60)) {
+            call.respond(HttpStatusCode.TooManyRequests, OidError("rate_limit_exceeded", "Too many nonce requests"))
+            return@post
+        }
         val nonce = nonceStore.generate()
         call.response.headers.append("Cache-Control", "no-store")
         call.respond(
@@ -185,6 +258,10 @@ fun Route.configureOid4vciRoutes(
      * pre-authorized_code を access_token に交換する。
      */
     post("/token") {
+        if (!RateLimiter.isAllowed("token:${call.clientIp()}", 10)) {
+            call.respond(HttpStatusCode.TooManyRequests, OidError("rate_limit_exceeded", "Too many token requests"))
+            return@post
+        }
         val params = call.receiveParameters()
 
         if (params["grant_type"] != "urn:ietf:params:oauth:grant-type:pre-authorized_code") {
@@ -231,6 +308,10 @@ fun Route.configureOid4vciRoutes(
      * proof JWT を検証して署名済み mdoc を発行する。
      */
     post("/credential") {
+        if (!RateLimiter.isAllowed("credential:${call.clientIp()}", 5)) {
+            call.respond(HttpStatusCode.TooManyRequests, OidError("rate_limit_exceeded", "Too many credential requests"))
+            return@post
+        }
         val accessToken =
             call.extractBearerToken()
                 ?: return@post call.respond(
@@ -253,8 +334,17 @@ fun Route.configureOid4vciRoutes(
             return@post
         }
 
+        // Content-Type 検証
+        val contentType = call.request.headers["Content-Type"] ?: ""
+        if (!contentType.contains("application/json", ignoreCase = true)) {
+            call.respond(
+                HttpStatusCode.UnsupportedMediaType,
+                OidError("invalid_request", "Content-Type must be application/json"),
+            )
+            return@post
+        }
+
         val bodyText = call.receiveText()
-        logger.debug("POST /credential body: $bodyText")
         val body =
             try {
                 json.parseToJsonElement(bodyText).jsonObject
@@ -364,6 +454,11 @@ private fun validateProofJwt(
             .parse(jwt)
     val header = signedJwt.header
     val claims = signedJwt.jwtClaimsSet
+
+    // アルゴリズム検証: ES256 のみ許可（alg:none 攻撃・アルゴリズム混同攻撃を防止）
+    if (header.algorithm != com.nimbusds.jose.JWSAlgorithm.ES256) {
+        throw IllegalArgumentException("proof JWT の alg が不正です: ${header.algorithm}（ES256 のみ許可）")
+    }
 
     val ecJwk =
         (header.jwk as? ECKey)

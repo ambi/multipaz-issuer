@@ -11,7 +11,13 @@ import io.ktor.server.sessions.Sessions
 import io.ktor.server.sessions.cookie
 import kotlinx.serialization.Serializable
 
-/** ブラウザセッションに保存するユーザー情報。 */
+/**
+ * ブラウザセッションに保存するユーザー情報。
+ *
+ * セキュリティ上の理由により Entra ID アクセストークンは保持しない。
+ * ユーザー情報・写真はログイン時にまとめて取得済み。
+ * csrfToken は /issue POST の CSRF 対策に使用する。
+ */
 @Serializable
 data class UserSession(
     val userId: String,
@@ -21,8 +27,8 @@ data class UserSession(
     val email: String?,
     /** Graph API から取得した写真が存在するか */
     val hasPhoto: Boolean,
-    /** MS Graph API 呼び出しに使用する Entra ID アクセストークン */
-    val entraAccessToken: String,
+    /** CSRF 対策トークン（ログイン時に生成） */
+    val csrfToken: String,
 )
 
 fun Application.configureAuth(

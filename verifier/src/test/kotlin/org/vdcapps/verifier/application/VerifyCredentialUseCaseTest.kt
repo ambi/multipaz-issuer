@@ -57,7 +57,7 @@ class VerifyCredentialUseCaseTest {
             val (useCase, _, mdocVerifier) = setup()
             val session = useCase.startVerification()
             val expected = sampleResult()
-            every { mdocVerifier.verify(any()) } returns expected
+            every { mdocVerifier.verify(any(), any()) } returns expected
 
             val result = useCase.processVpToken(session, validBase64())
             assertEquals(expected, result)
@@ -68,7 +68,7 @@ class VerifyCredentialUseCaseTest {
         runTest {
             val (useCase, verificationService, mdocVerifier) = setup()
             val session = useCase.startVerification()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
 
             useCase.processVpToken(session, validBase64())
 
@@ -83,7 +83,7 @@ class VerifyCredentialUseCaseTest {
             val (useCase, verificationService, mdocVerifier) = setup()
             val session = useCase.startVerification()
             val expected = sampleResult()
-            every { mdocVerifier.verify(any()) } returns expected
+            every { mdocVerifier.verify(any(), any()) } returns expected
 
             useCase.processVpToken(session, validBase64())
 
@@ -97,7 +97,7 @@ class VerifyCredentialUseCaseTest {
             val session = useCase.startVerification()
             // RESPONSE_RECEIVED への遷移は markVerified の前に起きるため
             // verify() 呼び出し前にセッションが RESPONSE_RECEIVED になることを確認
-            every { mdocVerifier.verify(any()) } answers {
+            every { mdocVerifier.verify(any(), any()) } answers {
                 val mid = runBlocking { verificationService.findById(session.id)!! }
                 assertEquals(VerificationSession.State.RESPONSE_RECEIVED, mid.state)
                 sampleResult()
@@ -110,7 +110,7 @@ class VerifyCredentialUseCaseTest {
         runTest {
             val (useCase, _, mdocVerifier) = setup()
             val session = useCase.startVerification()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
             // パディングなし（正常）
             val noPadding = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(10))
             useCase.processVpToken(session, noPadding) // 例外が出ないこと
@@ -121,7 +121,7 @@ class VerifyCredentialUseCaseTest {
         runTest {
             val (useCase, _, mdocVerifier) = setup()
             val session = useCase.startVerification()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
             // パディングあり（trimEnd('=') で処理される）
             val withPadding = Base64.getUrlEncoder().encodeToString(ByteArray(10)) // ends with ==
             useCase.processVpToken(session, withPadding) // 例外が出ないこと
@@ -134,7 +134,7 @@ class VerifyCredentialUseCaseTest {
         runTest {
             val (useCase, verificationService, mdocVerifier) = setup()
             val session = useCase.startVerification()
-            every { mdocVerifier.verify(any()) } throws IllegalArgumentException("COSE_Sign1 検証失敗")
+            every { mdocVerifier.verify(any(), any()) } throws IllegalArgumentException("COSE_Sign1 検証失敗")
 
             assertFailsWith<IllegalArgumentException> {
                 useCase.processVpToken(session, validBase64())
@@ -150,7 +150,7 @@ class VerifyCredentialUseCaseTest {
         runTest {
             val (useCase, _, mdocVerifier) = setup()
             val session = useCase.startVerification()
-            every { mdocVerifier.verify(any()) } throws IllegalArgumentException("error-msg")
+            every { mdocVerifier.verify(any(), any()) } throws IllegalArgumentException("error-msg")
 
             val ex =
                 assertFailsWith<IllegalArgumentException> {
@@ -164,7 +164,7 @@ class VerifyCredentialUseCaseTest {
         runTest {
             val (useCase, verificationService, mdocVerifier) = setup()
             val session = useCase.startVerification()
-            every { mdocVerifier.verify(any()) } throws RuntimeException("fail")
+            every { mdocVerifier.verify(any(), any()) } throws RuntimeException("fail")
 
             assertFailsWith<RuntimeException> { useCase.processVpToken(session, validBase64()) }
             assertNull(verificationService.findById(session.id)!!.result)
@@ -194,10 +194,10 @@ class VerifyCredentialUseCaseTest {
             val session = useCase.startVerification()
             val bytes = ByteArray(16) { (it + 1).toByte() }
             val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-            every { mdocVerifier.verify(bytes) } returns sampleResult()
+            every { mdocVerifier.verify(bytes, any()) } returns sampleResult()
 
             useCase.processVpToken(session, token)
 
-            verify(exactly = 1) { mdocVerifier.verify(bytes) }
+            verify(exactly = 1) { mdocVerifier.verify(bytes, any()) }
         }
 }

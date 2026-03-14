@@ -74,6 +74,8 @@ dependencies {
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.12")
     implementation("net.logstash.logback:logstash-logback-encoder:8.0")
+    // logback.xml の <if> 条件分岐に必要
+    runtimeOnly("org.codehaus.janino:janino:3.1.12")
 
     // Testing
     testImplementation(kotlin("test-junit5"))

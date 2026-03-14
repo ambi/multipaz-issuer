@@ -52,8 +52,14 @@ class NonceStoreTest {
     fun `verify は改ざんされた nonce で false を返す`() {
         val store = NonceStore()
         val nonce = store.generate()
-        // 末尾1文字を変えて署名を壊す
-        val tampered = nonce.dropLast(1) + if (nonce.last() == 'A') 'B' else 'A'
+        // 末尾から 2 文字目（インデックス 73）を変えて署名を壊す。
+        // 末尾 1 文字（インデックス 74）は base64url のパディングビット（下位 2 ビット）を含み、
+        // Java の Base64 デコーダはその 2 ビットを無視するため、
+        // 一部の文字置換（例: 'A'↔'B'）ではデコード後のバイト列が変わらず
+        // verify が true を返してしまう（約 6.25% の確率でフレーキー化する）。
+        // インデックス 73 は 6 ビット全てが実データに対応するため安全に改ざんできる。
+        val idx = nonce.length - 2
+        val tampered = nonce.substring(0, idx) + (if (nonce[idx] == 'A') 'B' else 'A') + nonce.last()
         assertFalse(store.verify(tampered))
     }
 

@@ -22,6 +22,7 @@ fun Route.configureHomeRoutes() {
                         "familyName" to session.familyName,
                         "email" to (session.email ?: ""),
                         "hasPhoto" to session.hasPhoto,
+                        "csrfToken" to session.csrfToken,
                     ),
                 ),
             )
@@ -45,6 +46,7 @@ fun Route.configureHomeRoutes() {
                     "familyName" to session.familyName,
                     "email" to (session.email ?: ""),
                     "hasPhoto" to session.hasPhoto,
+                    "csrfToken" to session.csrfToken,
                 ),
             ),
         )

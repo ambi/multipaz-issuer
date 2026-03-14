@@ -20,7 +20,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.vdcapps.issuer.web.plugins.configureSerialization
+import org.vdcapps.issuer.web.routes.RateLimiter
 import org.vdcapps.issuer.web.routes.configureOid4vciRoutes
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -35,6 +37,12 @@ import kotlin.test.assertTrue
  */
 class Oid4vciIntegrationTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @BeforeTest
+    fun setUp() {
+        // テスト間でレート制限をリセットする
+        RateLimiter.clearForTesting()
+    }
 
     // ---- /.well-known/openid-credential-issuer ----
 
@@ -544,6 +552,103 @@ class Oid4vciIntegrationTest {
                 assertEquals(HttpStatusCode.BadRequest, response.status)
                 val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
                 assertEquals("unsupported_credential_format", body["error"]?.jsonPrimitive?.content)
+            }
+        }
+
+    // ---- POST /credential: Content-Type 検証 ----
+
+    @Test
+    fun `application_json 以外の Content-Type で credential を呼ぶと 415 が返る`() =
+        runTest {
+            val setup = TestSetup()
+            val issuanceSession = setup.createTestSession()
+
+            testApplication {
+                application { testModule(setup) }
+                val tokenBody =
+                    json
+                        .parseToJsonElement(
+                            client
+                                .post("/token") {
+                                    contentType(ContentType.Application.FormUrlEncoded)
+                                    setBody(
+                                        "grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code" +
+                                            "&pre-authorized_code=${issuanceSession.preAuthorizedCode}",
+                                    )
+                                }.bodyAsText(),
+                        ).jsonObject
+                val accessToken = tokenBody["access_token"]!!.jsonPrimitive.content
+
+                val response =
+                    client.post("/credential") {
+                        contentType(ContentType.Application.FormUrlEncoded)
+                        header("Authorization", "Bearer $accessToken")
+                        setBody("format=mso_mdoc")
+                    }
+                assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                assertEquals("invalid_request", body["error"]?.jsonPrimitive?.content)
+            }
+        }
+
+    // ---- レート制限 ----
+
+    @Test
+    fun `nonce エンドポイントが 60 回を超えると 429 が返る`() =
+        runTest {
+            testApplication {
+                application { testModule() }
+                repeat(60) { client.post("/nonce") }
+                val response = client.post("/nonce")
+                assertEquals(HttpStatusCode.TooManyRequests, response.status)
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                assertEquals("rate_limit_exceeded", body["error"]?.jsonPrimitive?.content)
+            }
+        }
+
+    @Test
+    fun `token エンドポイントが 10 回を超えると 429 が返る`() =
+        runTest {
+            testApplication {
+                application { testModule() }
+                repeat(10) {
+                    client.post("/token") {
+                        contentType(ContentType.Application.FormUrlEncoded)
+                        setBody("grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code&pre-authorized_code=dummy")
+                    }
+                }
+                val response =
+                    client.post("/token") {
+                        contentType(ContentType.Application.FormUrlEncoded)
+                        setBody("grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code&pre-authorized_code=dummy")
+                    }
+                assertEquals(HttpStatusCode.TooManyRequests, response.status)
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                assertEquals("rate_limit_exceeded", body["error"]?.jsonPrimitive?.content)
+            }
+        }
+
+    @Test
+    fun `credential エンドポイントが 5 回を超えると 429 が返る`() =
+        runTest {
+            testApplication {
+                application { testModule() }
+                repeat(5) {
+                    client.post("/credential") {
+                        contentType(ContentType.Application.Json)
+                        header("Authorization", "Bearer dummy")
+                        setBody("""{"format":"mso_mdoc"}""")
+                    }
+                }
+                val response =
+                    client.post("/credential") {
+                        contentType(ContentType.Application.Json)
+                        header("Authorization", "Bearer dummy")
+                        setBody("""{"format":"mso_mdoc"}""")
+                    }
+                assertEquals(HttpStatusCode.TooManyRequests, response.status)
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                assertEquals("rate_limit_exceeded", body["error"]?.jsonPrimitive?.content)
             }
         }
 

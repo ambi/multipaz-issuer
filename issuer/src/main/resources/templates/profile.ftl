@@ -54,6 +54,7 @@
 
     <!-- 入力フォーム -->
     <form method="post" action="/issue">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 mb-6 overflow-hidden">
             <div class="px-5 py-3 bg-slate-50 border-b border-slate-100 font-semibold text-slate-700 text-sm">
                 証明書に含める情報を確認・入力

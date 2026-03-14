@@ -374,7 +374,7 @@ ENTRA_CLIENT_SECRET=<クライアントシークレット>
 BASE_URL=https://your-issuer.example.com     # デフォルト: http://localhost:8080
 ENTRA_REDIRECT_URI=https://your-issuer.example.com/auth/callback
 KEY_STORE_PATH=issuer-keystore.p12            # デフォルト: issuer-keystore.p12
-KEY_STORE_PASSWORD=changeit
+KEY_STORE_PASSWORD=<強いパスワードを設定>    # 必須。デフォルト値なし（セキュリティ上）
 ISSUING_COUNTRY=JP
 ISSUING_AUTHORITY=VDC Apps Issuer
 REDIS_URL=redis://localhost:6379              # 未設定時はインメモリ
@@ -390,6 +390,8 @@ LOG_LEVEL_KTOR=WARN                           # Ktor フレームワークログ
 BASE_URL=https://your-verifier.example.com   # デフォルト: http://localhost:8081
 PORT=8081
 REDIS_URL=redis://localhost:6379              # 未設定時はインメモリ
+TRUSTED_ISSUER_CERT=/path/to/issuer-ca.pem   # 信頼する発行者証明書の PEM ファイル
+                                              # 未設定時は警告を出力して検証をスキップ（開発専用）
 LOG_FORMAT=json                               # json（デフォルト）または text（ローカル開発向け）
 LOG_LEVEL_APP=INFO                            # アプリログレベル（DEBUG/INFO/WARN/ERROR）
 LOG_LEVEL_KTOR=WARN                           # Ktor フレームワークログレベル

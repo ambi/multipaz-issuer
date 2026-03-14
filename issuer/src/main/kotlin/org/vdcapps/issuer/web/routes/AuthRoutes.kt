@@ -15,8 +15,16 @@ import io.ktor.server.sessions.set
 import org.slf4j.LoggerFactory
 import org.vdcapps.issuer.infrastructure.entra.EntraIdClient
 import org.vdcapps.issuer.web.plugins.UserSession
+import java.security.SecureRandom
+import java.util.Base64
 
 private val logger = LoggerFactory.getLogger("AuthRoutes")
+
+private fun generateCsrfToken(): String {
+    val bytes = ByteArray(32)
+    SecureRandom().nextBytes(bytes)
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+}
 
 fun Route.configureAuthRoutes(entraIdClient: EntraIdClient) {
     // ログインページ → Entra ID の OIDC フローへリダイレクト
@@ -40,7 +48,7 @@ fun Route.configureAuthRoutes(entraIdClient: EntraIdClient) {
                         familyName = user.familyName,
                         email = user.email,
                         hasPhoto = user.photo != null,
-                        entraAccessToken = principal.accessToken,
+                        csrfToken = generateCsrfToken(),
                     ),
                 )
                 call.respondRedirect("/profile")

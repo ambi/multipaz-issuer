@@ -20,12 +20,21 @@ import java.time.Instant
 /**
  * OID4VP の vp_token（base64url デコード済み DeviceResponse CBOR バイト列）を検証し
  * [VerificationResult] を返す。
+ *
+ * @param trustedCertificates 信頼する発行者証明書のリスト。
+ *   空の場合は開発モードとして警告を出力して証明書検証をスキップする。
+ *   本番環境では TRUSTED_ISSUER_CERT で必ず設定すること。
  */
 @OptIn(kotlin.time.ExperimentalTime::class)
-class MdocVerifier {
+class MdocVerifier(
+    private val trustedCertificates: List<X509Certificate> = emptyList(),
+) {
     private val logger = LoggerFactory.getLogger(MdocVerifier::class.java)
 
-    fun verify(deviceResponseBytes: ByteArray): VerificationResult {
+    fun verify(
+        deviceResponseBytes: ByteArray,
+        expectedNonce: String? = null,
+    ): VerificationResult {
         val deviceResponse = Cbor.decode(deviceResponseBytes).asMap()
 
         val documents =
@@ -58,6 +67,7 @@ class MdocVerifier {
                 ?: throw IllegalArgumentException("x5chain から発行者証明書を取得できませんでした")
         logger.debug("発行者証明書: ${issuerCert.subjectX500Principal.name}")
 
+        validateIssuerCertificate(issuerCert)
         verifyCoseSign1(protectedHeaderBytes, payloadBytes, signatureBytes, issuerCert)
 
         // payload = Tagged(24, Bstr(cbor_encoded_mso))
@@ -77,12 +87,62 @@ class MdocVerifier {
             issuerSigned.getByString("nameSpaces")?.asMap()
                 ?: throw IllegalArgumentException("IssuerSigned に nameSpaces がありません")
 
+        // nonce は OID4VP の DeviceSigned > DeviceAuthentication > SessionTranscript に含まれる。
+        // DeviceSigned の署名検証（DeviceAuthentication 構造の解析）は現時点では未実装。
+        // TODO: DeviceSigned を解析して nonce を検証し、リプレイ攻撃を完全に防止すること。
+        if (expectedNonce != null) {
+            logger.warn(
+                "SECURITY WARNING: DeviceSigned の nonce 検証は未実装です。" +
+                    "vp_token のリプレイ攻撃を防ぐために DeviceAuthentication の解析と署名検証を実装してください。" +
+                    " expectedNonce=${expectedNonce.take(8)}...",
+            )
+        }
+
         return VerificationResult(
             docType = docType,
             claims = extractClaims(nameSpacesMap),
             issuerCertificateSubject = issuerCert.subjectX500Principal.name,
             validFrom = validFrom,
             validUntil = validUntil,
+        )
+    }
+
+    // ---- 発行者証明書信頼検証 ----
+
+    /**
+     * 発行者証明書を信頼済みリストと照合する。
+     *
+     * - [trustedCertificates] が空の場合: SECURITY WARNING を出力して開発モードとして続行。
+     *   本番環境では TRUSTED_ISSUER_CERT を設定して必ず有効化すること。
+     * - [trustedCertificates] が設定済みの場合: 証明書が信頼リストに直接含まれるか、
+     *   信頼済み証明書によって署名されているかを検証する。
+     */
+    private fun validateIssuerCertificate(cert: X509Certificate) {
+        if (trustedCertificates.isEmpty()) {
+            logger.warn(
+                "SECURITY WARNING: 信頼済み発行者証明書が設定されていません。" +
+                    "いかなる自己署名証明書も受け入れます。" +
+                    "本番環境では TRUSTED_ISSUER_CERT 環境変数を設定してください。" +
+                    " 発行者: ${cert.subjectX500Principal.name}",
+            )
+            return
+        }
+
+        for (trusted in trustedCertificates) {
+            try {
+                if (cert == trusted) {
+                    logger.debug("発行者証明書が信頼済みリストに直接一致: ${cert.subjectX500Principal.name}")
+                    return
+                }
+                cert.verify(trusted.publicKey)
+                logger.debug("発行者証明書が信頼済み CA によって署名されています: ${trusted.subjectX500Principal.name}")
+                return
+            } catch (_: Exception) {
+                // この trusted cert では検証できなかった。次を試す。
+            }
+        }
+        throw SecurityException(
+            "発行者証明書が信頼済みリストに含まれていません: ${cert.subjectX500Principal.name}",
         )
     }
 

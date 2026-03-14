@@ -45,7 +45,7 @@ class AuthRoutesTest {
                         familyName = "Yamada",
                         email = "taro@example.com",
                         hasPhoto = false,
-                        entraAccessToken = "dummy-token",
+                        csrfToken = "test-csrf-token",
                     ),
                 )
                 call.respondText("OK")

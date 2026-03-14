@@ -256,6 +256,43 @@ class MdocVerifierTest {
         assertFailsWith<IllegalArgumentException> { verifier.verify(bytes) }
     }
 
+    // ---- trustedCertificates 検証 ----
+
+    @Test
+    fun `信頼済みリストに一致する証明書で署名された DeviceResponse は検証を通過する`() {
+        val issuerKp = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val issuerCert = generateSelfSignedCert(issuerKp.private as ECPrivateKey, issuerKp.public as ECPublicKey)
+        val verifierWithTrust = MdocVerifier(trustedCertificates = listOf(issuerCert))
+
+        val bytes = buildValidDeviceResponseWithKeyPair(issuerKp.private as ECPrivateKey, issuerKp.public as ECPublicKey, issuerCert)
+        val result = verifierWithTrust.verify(bytes)
+        assertNotNull(result)
+    }
+
+    @Test
+    fun `信頼済みリストに一致しない証明書で署名された DeviceResponse は SecurityException をスローする`() {
+        // 発行者の鍵ペアと証明書
+        val issuerKp = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val issuerCert = generateSelfSignedCert(issuerKp.private as ECPrivateKey, issuerKp.public as ECPublicKey)
+
+        // 別の（信頼しない）証明書
+        val untrustedKp = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val untrustedCert = generateSelfSignedCert(untrustedKp.private as ECPrivateKey, untrustedKp.public as ECPublicKey)
+
+        // untrustedCert のみを信頼するが、issuerCert で署名した DeviceResponse を検証する
+        val verifierWithWrongTrust = MdocVerifier(trustedCertificates = listOf(untrustedCert))
+        val bytes = buildValidDeviceResponseWithKeyPair(issuerKp.private as ECPrivateKey, issuerKp.public as ECPublicKey, issuerCert)
+
+        assertFailsWith<SecurityException> { verifierWithWrongTrust.verify(bytes) }
+    }
+
+    @Test
+    fun `信頼済みリストが空の場合はどの証明書でも検証を通過する（開発モード）`() {
+        // デフォルト MdocVerifier（信頼済みリスト空）は開発モード
+        val result = verifier.verify(buildValidDeviceResponse())
+        assertNotNull(result)
+    }
+
     // ---- テスト用 DeviceResponse 構築ヘルパー ----
 
     /**
@@ -403,6 +440,112 @@ class MdocVerifierTest {
             }
 
         return Cbor.encode(deviceResponse)
+    }
+
+    /** 発行者鍵ペアと証明書を外部から指定して DeviceResponse を構築するヘルパー。 */
+    private fun buildValidDeviceResponseWithKeyPair(
+        issuerPrivKey: ECPrivateKey,
+        issuerPubKey: ECPublicKey,
+        issuerCert: X509Certificate,
+    ): ByteArray =
+        kotlinx.coroutines.runBlocking {
+            buildValidDeviceResponseSuspendWithKeyPair(issuerPrivKey, issuerPubKey, issuerCert)
+        }
+
+    private suspend fun buildValidDeviceResponseSuspendWithKeyPair(
+        issuerPrivKey: ECPrivateKey,
+        issuerPubKey: ECPublicKey,
+        issuerCert: X509Certificate,
+    ): ByteArray {
+        val docType = "org.iso.23220.photoid.1"
+        val walletKp = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val walletPub = walletKp.public as ECPublicKey
+
+        fun normalize(bytes: ByteArray): ByteArray =
+            when {
+                bytes.size == 33 && bytes[0] == 0.toByte() -> bytes.copyOfRange(1, 33)
+                bytes.size < 32 -> ByteArray(32 - bytes.size) + bytes
+                else -> bytes
+            }
+        val holderKey =
+            EcPublicKeyDoubleCoordinate(
+                EcCurve.P256,
+                normalize(walletPub.w.affineX.toByteArray()),
+                normalize(walletPub.w.affineY.toByteArray()),
+            )
+
+        val namespace = "org.iso.23220.2"
+        val credential = buildTestCredential()
+        val issuerNamespaces =
+            buildIssuerNamespaces {
+                addNamespace(namespace) {
+                    addDataElement("family_name", credential.familyName.toDataItem())
+                    addDataElement("given_name", credential.givenName.toDataItem())
+                    addDataElement("birth_date", credential.birthDate.toDataItemFullDate())
+                    addDataElement("issue_date", credential.issueDate.toDataItemFullDate())
+                    addDataElement("expiry_date", credential.expiryDate.toDataItemFullDate())
+                    addDataElement("issuing_country", credential.issuingCountry.toDataItem())
+                    addDataElement("issuing_authority_unicode", credential.issuingAuthority.toDataItem())
+                }
+            }
+
+        val nowSec = Clock.System.now().epochSeconds
+        val now = kotlinx.datetime.Instant.fromEpochSeconds(nowSec)
+        val validFrom = kotlinx.datetime.Instant.fromEpochSeconds(nowSec - 60)
+        val validUntil = kotlinx.datetime.Instant.fromEpochSeconds(nowSec + 365L * 24 * 3600)
+        val valueDigests = issuerNamespaces.getValueDigests(Algorithm.SHA256)
+        val mso =
+            MobileSecurityObject(
+                version = "1.0",
+                digestAlgorithm = Algorithm.SHA256,
+                valueDigests = valueDigests,
+                deviceKey = holderKey,
+                docType = docType,
+                signedAt = now,
+                validFrom = validFrom,
+                validUntil = validUntil,
+                expectedUpdate = null,
+            )
+
+        val taggedEncodedMso = Cbor.encode(Tagged(Tagged.ENCODED_CBOR, Bstr(Cbor.encode(mso.toDataItem()))))
+        val multipazPrivKey = issuerPrivKey.toEcPrivateKey(issuerPubKey, EcCurve.P256)
+        val multipazCert = X509Cert(ByteString(issuerCert.encoded))
+        val certChain = X509CertChain(listOf(multipazCert))
+        val signingKey = AsymmetricKey.X509CertifiedExplicit(certChain, multipazPrivKey)
+
+        val protectedHeaders: Map<CoseLabel, org.multipaz.cbor.DataItem> =
+            mapOf(CoseNumberLabel(Cose.COSE_LABEL_ALG) to Algorithm.ES256.coseAlgorithmIdentifier!!.toDataItem())
+        val unprotectedHeaders: Map<CoseLabel, org.multipaz.cbor.DataItem> =
+            mapOf(CoseNumberLabel(Cose.COSE_LABEL_X5CHAIN) to signingKey.certChain.toDataItem())
+
+        val issuerAuth =
+            kotlinx.coroutines.runBlocking {
+                Cose.coseSign1Sign(
+                    signingKey,
+                    taggedEncodedMso,
+                    includeMessageInPayload = true,
+                    protectedHeaders = protectedHeaders,
+                    unprotectedHeaders = unprotectedHeaders,
+                )
+            }
+
+        val issuerSignedMap =
+            buildCborMap {
+                put("nameSpaces", issuerNamespaces.toDataItem())
+                put("issuerAuth", org.multipaz.cbor.RawCbor(Cbor.encode(issuerAuth.toDataItem())))
+            }
+        val document =
+            buildCborMap {
+                put("docType", docType.toDataItem())
+                put("issuerSigned", issuerSignedMap)
+            }
+        return Cbor.encode(
+            buildCborMap {
+                put("version", "1.0".toDataItem())
+                put("documents", buildCborArray { add(document) })
+                put("status", Uint(0UL))
+            },
+        )
     }
 
     private data class TestCredential(

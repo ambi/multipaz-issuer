@@ -3,6 +3,7 @@ package org.vdcapps.issuer.web.plugins
 import freemarker.cache.ClassTemplateLoader
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 import io.ktor.server.freemarker.FreeMarker
 import io.ktor.server.plugins.callid.CallId
@@ -35,6 +36,32 @@ fun Application.configureRouting(
     nonceStore: NonceStore,
     checkReady: () -> Boolean = { true },
 ) {
+    // HTTP セキュリティヘッダー
+    val isHttps = baseUrl.startsWith("https")
+    install(
+        createApplicationPlugin("SecurityHeaders") {
+            onCall { call ->
+                call.response.headers.apply {
+                    append("X-Frame-Options", "DENY")
+                    append("X-Content-Type-Options", "nosniff")
+                    append("X-XSS-Protection", "1; mode=block")
+                    append("Referrer-Policy", "strict-origin-when-cross-origin")
+                    append(
+                        "Content-Security-Policy",
+                        "default-src 'self'; " +
+                            "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
+                            "style-src 'self' 'unsafe-inline'; " +
+                            "img-src 'self' data:; " +
+                            "connect-src 'self'",
+                    )
+                    if (isHttps) {
+                        append("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+                    }
+                }
+            }
+        },
+    )
+
     install(FreeMarker) {
         templateLoader = ClassTemplateLoader(this::class.java.classLoader, "templates")
     }

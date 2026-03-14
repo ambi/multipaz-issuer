@@ -182,7 +182,7 @@ class VerifierIntegrationTest {
             val svc = VerificationService(InMemoryVerificationSessionRepository())
             val session = svc.createSession()
             val mdocVerifier = mockk<MdocVerifier>()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
 
             val validToken = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
 
@@ -206,7 +206,7 @@ class VerifierIntegrationTest {
             val svc = VerificationService(InMemoryVerificationSessionRepository())
             val session = svc.createSession()
             val mdocVerifier = mockk<MdocVerifier>()
-            every { mdocVerifier.verify(any()) } throws IllegalArgumentException("署名検証失敗")
+            every { mdocVerifier.verify(any(), any()) } throws IllegalArgumentException("署名検証失敗")
 
             val validToken = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
 
@@ -229,7 +229,7 @@ class VerifierIntegrationTest {
             val svc = VerificationService(InMemoryVerificationSessionRepository())
             val session = svc.createSession()
             val mdocVerifier = mockk<MdocVerifier>()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
 
             val validToken = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
 
@@ -250,7 +250,7 @@ class VerifierIntegrationTest {
             val svc = VerificationService(InMemoryVerificationSessionRepository())
             val session = svc.createSession()
             val mdocVerifier = mockk<MdocVerifier>()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
 
             val innerToken = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
 
@@ -273,7 +273,7 @@ class VerifierIntegrationTest {
             val svc = VerificationService(InMemoryVerificationSessionRepository())
             val session = svc.createSession()
             val mdocVerifier = mockk<MdocVerifier>()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
 
             val innerToken = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
 
@@ -387,7 +387,7 @@ class VerifierIntegrationTest {
             val svc = VerificationService(InMemoryVerificationSessionRepository())
             val session = svc.createSession()
             val mdocVerifier = mockk<MdocVerifier>()
-            every { mdocVerifier.verify(any()) } returns sampleResult()
+            every { mdocVerifier.verify(any(), any()) } returns sampleResult()
             val validToken = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
 
             testApplication {
@@ -417,7 +417,7 @@ class VerifierIntegrationTest {
             val svc = VerificationService(InMemoryVerificationSessionRepository())
             val session = svc.createSession()
             val mdocVerifier = mockk<MdocVerifier>()
-            every { mdocVerifier.verify(any()) } throws IllegalArgumentException("署名不正")
+            every { mdocVerifier.verify(any(), any()) } throws IllegalArgumentException("署名不正")
             val validToken = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
 
             testApplication {

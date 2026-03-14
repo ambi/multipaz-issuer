@@ -17,6 +17,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ドキュメントの更新を省略してはならない。「後で更新する」は認めない。
 
+## テスト更新ルール
+
+**コードを変更したら、必ず同じコミットで対応するテストも更新または追加すること。**
+
+| 変更の種類 | テストの対応 |
+| --- | --- |
+| 新しいバリデーション・ガード節の追加 | 正常系（通過）と異常系（拒否）の両方をテスト |
+| エンドポイントの追加・変更 | ルートのテスト（統合テスト）を追加・更新 |
+| ドメインロジック・ユースケースの変更 | 単体テストを追加・更新 |
+| セキュリティ機能の追加（認証・CSRF・レート制限等） | 正常系と攻撃シナリオの両方をテスト |
+| バグ修正 | バグを再現するテストを追加し、修正後に通過することを確認 |
+| 関数シグネチャの変更（引数の追加等） | 既存テストが新シグネチャに対応しているか確認・更新 |
+
+テストの更新を省略してはならない。「後で書く」は認めない。
+
+### テスト配置の原則
+
+- **単体テスト**: ドメインロジック・インフラ実装は `src/test/kotlin/...` の対応パッケージに配置
+- **統合テスト**: Ktor ルートは `web/routes/` または `web/` パッケージのテストに配置
+- **テスト用ヘルパー**: テストモジュールや共通セットアップは同一ファイルの `private` 関数・クラスとして定義
+- **テスト間の独立性**: グローバルな状態（RateLimiter 等）は `@BeforeTest` でリセットすること
+- **テスト名**: 日本語で「〜する場合は〜を返す」形式で記述し、何をテストしているか明確にすること
+
 ## プロジェクト概要
 
 ISO/IEC TS 23220-4 Photo ID の Verifiable Credential (mdoc 形式) の **Issuer** と **Verifier** を含む Kotlin/JVM ウェブアプリケーション。
@@ -73,10 +96,12 @@ ENTRA_CLIENT_SECRET=<クライアントシークレット>
 BASE_URL=https://your-domain.example.com   # デフォルト: http://localhost:8080
 ENTRA_REDIRECT_URI=https://your-domain.example.com/auth/callback
 KEY_STORE_PATH=issuer-keystore.p12          # 初回起動時に自動生成
-KEY_STORE_PASSWORD=changeit
+KEY_STORE_PASSWORD=<強いパスワードを設定>   # 必須。デフォルト値なし
 ISSUING_COUNTRY=JP
 ISSUING_AUTHORITY="VDC Apps Issuer"
 REDIS_URL=redis://localhost:6379            # 未設定時はインメモリ（issuer/verifier 共通）
+TRUSTED_ISSUER_CERT=/path/to/issuer-ca.pem # Verifier 専用: 信頼する発行者証明書の PEM パス
+                                            # 未設定時は警告を出力して証明書検証をスキップ（開発用のみ）
 # ログ設定（issuer/verifier 共通）
 LOG_FORMAT=json                             # json（デフォルト）または text（ローカル開発向け）
 LOG_LEVEL_APP=INFO                          # アプリログレベル（DEBUG/INFO/WARN/ERROR）
@@ -116,12 +141,20 @@ application/
 web/
   plugins/Auth.kt                        # Ktor Sessions + OAuth (Entra ID) 設定、UserSession 定義
                                          # cookie に SameSite=Strict を設定
+                                         # UserSession: userId/displayName/givenName/familyName/email/hasPhoto/csrfToken
+                                         # ※ entraAccessToken はセキュリティ上 Cookie に保存しない
   plugins/Routing.kt                     # FreeMarker + CallId + CallLogging + StatusPages、全ルートの登録
+                                         # SecurityHeaders プラグイン: X-Frame-Options, X-Content-Type-Options,
+                                         # X-XSS-Protection, Referrer-Policy, CSP, HSTS（HTTPS 時のみ）
   plugins/Serialization.kt               # ContentNegotiation (JSON)
-  routes/HomeRoutes.kt                   # GET / と /profile
+  routes/HomeRoutes.kt                   # GET / と /profile（csrfToken をテンプレートに渡す）
   routes/AuthRoutes.kt                   # /auth/login, /auth/callback, /auth/logout
+                                         # コールバック時に csrfToken を生成して UserSession に保存
   routes/HealthRoutes.kt                 # GET /health（liveness）、GET /readiness（Redis 疎通確認）
   routes/Oid4vciRoutes.kt                # OID4VCI エンドポイント群
+                                         # /issue: CSRF トークン検証・生年月日バリデーション
+                                         # /token, /credential, /nonce: IP ベースのレート制限
+                                         # /credential: Content-Type 検証・JWT アルゴリズム検証
 
 Application.kt                           # DI 相当の配線と module() 関数
                                          # HTTP クライアント（タイムアウト付き）、Redis pool 管理
@@ -138,6 +171,8 @@ domain/
 
 infrastructure/
   multipaz/MdocVerifier.kt                    # DeviceResponse CBOR を検証し VerificationResult を返す
+                                              # trustedCertificates: 信頼済み発行者証明書リスト（空=開発モード警告）
+                                              # ※ DeviceSigned nonce 検証は未実装（TODO）
   redis/RedisVerificationSessionRepository.kt # Redis 実装（REDIS_URL 設定時に使用）
 
 application/
@@ -145,12 +180,14 @@ application/
 
 web/
   plugins/Routing.kt                          # FreeMarker + CallId + CallLogging + StatusPages、全ルートの登録
+                                              # SecurityHeaders プラグイン（Issuer と同等）
   plugins/Serialization.kt                    # ContentNegotiation (JSON)
   routes/HealthRoutes.kt                      # GET /health（liveness）、GET /readiness（Redis 疎通確認）
   routes/VerifierRoutes.kt                    # OID4VP エンドポイント群
 
 Application.kt                                # DI 相当の配線と module() 関数
                                               # Redis pool 管理
+                                              # TRUSTED_ISSUER_CERT から信頼済み証明書をロードして MdocVerifier に渡す
 ```
 
 ### 共通エンドポイント（Issuer・Verifier 両方）
@@ -248,5 +285,7 @@ IssuerSignedItem = { "digestID": uint, "random": bstr, "elementIdentifier": tstr
 - **顔写真**: Graph API `/me/photo/$value` から取得。未設定の場合は portrait 要素を省略（optional）
 - **セッション管理**: `REDIS_URL` 設定で Redis、未設定でインメモリ。InMemory は再起動でリセット
 - **発行者鍵**: 自己署名証明書。本番では CA 署名の証明書チェーンに差し替える
-- **Verifier の証明書信頼**: 現状は VC に含まれる x5chain 証明書の署名を直接信頼。本番では IACA (Issuing Authority Certificate Authority) のルート証明書で検証する
+- **Verifier の証明書信頼**: `TRUSTED_ISSUER_CERT` 環境変数で信頼済み PEM ファイルを指定する。未設定時は WARN ログを出力して検証をスキップ（開発専用）。本番では IACA (Issuing Authority Certificate Authority) のルート証明書を設定すること
+- **Verifier の nonce 検証**: OID4VP の nonce は DeviceSigned > DeviceAuthentication > SessionTranscript に含まれるが、現状は DeviceSigned の解析・署名検証が未実装。WARN ログで警告を出力中。本番導入前に実装が必要
+- **CSRF 保護**: UserSession に csrfToken を保持し /issue POST で検証。Cookie の SameSite=Strict と合わせた多層防御
 - **Multipaz のリポジトリ**: `google()` (GMaven) に publish されている

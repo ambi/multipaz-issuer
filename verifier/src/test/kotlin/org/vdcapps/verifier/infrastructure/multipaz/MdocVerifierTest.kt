@@ -12,7 +12,6 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.multipaz.cbor.Bstr
 import org.multipaz.cbor.Cbor
 import org.multipaz.cbor.CborArray
-import org.multipaz.cbor.CborMap
 import org.multipaz.cbor.Tagged
 import org.multipaz.cbor.Uint
 import org.multipaz.cbor.buildCborArray

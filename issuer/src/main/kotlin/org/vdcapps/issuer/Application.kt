@@ -20,10 +20,10 @@ import org.vdcapps.issuer.infrastructure.multipaz.PhotoIdBuilder
 import org.vdcapps.issuer.infrastructure.redis.RedisIssuanceSessionRepository
 import org.vdcapps.issuer.infrastructure.redis.RedisRateLimiter
 import org.vdcapps.issuer.web.plugins.configureAuth
-import org.vdcapps.issuer.web.util.RateLimiter
-import org.vdcapps.issuer.web.util.RateLimiterPort
 import org.vdcapps.issuer.web.plugins.configureRouting
 import org.vdcapps.issuer.web.plugins.configureSerialization
+import org.vdcapps.issuer.web.util.RateLimiter
+import org.vdcapps.issuer.web.util.RateLimiterPort
 import redis.clients.jedis.JedisPool
 
 private val logger = LoggerFactory.getLogger("Application")

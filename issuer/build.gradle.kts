@@ -99,7 +99,7 @@ tasks.test {
 tasks.jacocoTestReport {
     dependsOn(tasks.test)
     reports {
-        xml.required.set(true)   // CI / SonarQube 連携用
-        html.required.set(true)  // ローカル確認用
+        xml.required.set(true) // CI / SonarQube 連携用
+        html.required.set(true) // ローカル確認用
     }
 }

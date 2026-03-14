@@ -1,6 +1,7 @@
 .gradle/
 build/
 *.p12
+*.lock
 *.jks
 local.properties
 .env

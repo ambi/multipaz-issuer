@@ -13,12 +13,12 @@ private data class HealthResponse(
 )
 
 fun Route.configureHealthRoutes(checkReady: () -> Boolean = { true }) {
-    /** Liveness probe: アプリが起動しているか確認する。 */
+    // Liveness probe: アプリが起動しているか確認する。
     get("/health") {
         call.respond(HealthResponse("ok"))
     }
 
-    /** Readiness probe: 依存サービス（Redis 等）が使用可能か確認する。 */
+    // Readiness probe: 依存サービス（Redis 等）が使用可能か確認する。
     get("/readiness") {
         if (checkReady()) {
             call.respond(HealthResponse("ready"))

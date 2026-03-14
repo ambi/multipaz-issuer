@@ -340,7 +340,8 @@ private fun extractVpToken(element: JsonElement?): String? =
                 content
             }
         }
-        is JsonObject ->
+
+        is JsonObject -> {
             element.values.firstOrNull()?.let { v ->
                 when (v) {
                     is JsonPrimitive -> v.content
@@ -348,7 +349,11 @@ private fun extractVpToken(element: JsonElement?): String? =
                     else -> null
                 }
             }
-        else -> null
+        }
+
+        else -> {
+            null
+        }
     }
 
 /**

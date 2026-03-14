@@ -28,9 +28,9 @@ import org.vdcapps.issuer.infrastructure.multipaz.PhotoIdBuilder
 import org.vdcapps.issuer.web.routes.configureAuthRoutes
 import org.vdcapps.issuer.web.routes.configureHealthRoutes
 import org.vdcapps.issuer.web.routes.configureHomeRoutes
+import org.vdcapps.issuer.web.routes.configureOid4vciRoutes
 import org.vdcapps.issuer.web.util.RateLimiter
 import org.vdcapps.issuer.web.util.RateLimiterPort
-import org.vdcapps.issuer.web.routes.configureOid4vciRoutes
 import java.util.UUID
 
 private val logger = LoggerFactory.getLogger("Routing")

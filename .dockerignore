@@ -2,6 +2,7 @@
 .gradle/
 build/
 *.p12
+*.lock
 *.jks
 *.md
 .env

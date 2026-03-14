@@ -11,6 +11,8 @@ import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.multipaz.cbor.Bstr
 import org.multipaz.cbor.Cbor
+import org.multipaz.cbor.CborArray
+import org.multipaz.cbor.CborMap
 import org.multipaz.cbor.Tagged
 import org.multipaz.cbor.Uint
 import org.multipaz.cbor.buildCborArray
@@ -31,6 +33,8 @@ import org.multipaz.mdoc.issuersigned.buildIssuerNamespaces
 import org.multipaz.mdoc.mso.MobileSecurityObject
 import java.math.BigInteger
 import java.security.KeyPairGenerator
+import java.security.MessageDigest
+import java.security.Signature
 import java.security.cert.X509Certificate
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
@@ -52,6 +56,8 @@ import kotlin.time.ExperimentalTime
 @OptIn(ExperimentalTime::class)
 class MdocVerifierTest {
     private val verifier = MdocVerifier()
+    private val testResponseUri = "http://localhost/verifier/response"
+    private val verifierWithResponseUri = MdocVerifier(responseUri = testResponseUri)
 
     // ---- エラーパス: CBOR 構造不正 ----
 
@@ -290,6 +296,34 @@ class MdocVerifierTest {
     fun `信頼済みリストが空の場合はどの証明書でも検証を通過する（開発モード）`() {
         // デフォルト MdocVerifier（信頼済みリスト空）は開発モード
         val result = verifier.verify(buildValidDeviceResponse())
+        assertNotNull(result)
+    }
+
+    // ---- DeviceSigned 検証 ----
+
+    @Test
+    fun `deviceSigned が含まれ nonce が一致する場合は検証を通過する`() {
+        val nonce = "test-nonce-12345"
+        val bytes = buildValidDeviceResponseWithDeviceSigned(nonce)
+        val result = verifierWithResponseUri.verify(bytes, expectedNonce = nonce)
+        assertNotNull(result)
+    }
+
+    @Test
+    fun `deviceSigned の署名キーが不正な場合は SecurityException をスローする`() {
+        val nonce = "test-nonce-12345"
+        val bytes = buildValidDeviceResponseWithDeviceSigned(nonce, useWrongKey = true)
+        assertFailsWith<SecurityException> {
+            verifierWithResponseUri.verify(bytes, expectedNonce = nonce)
+        }
+    }
+
+    @Test
+    fun `deviceSigned がなく expectedNonce を渡した場合は WARN を出力して VerificationResult を返す`() {
+        val nonce = "test-nonce-12345"
+        // buildValidDeviceResponse() は deviceSigned を含まない
+        val bytes = buildValidDeviceResponse()
+        val result = verifier.verify(bytes, expectedNonce = nonce)
         assertNotNull(result)
     }
 
@@ -546,6 +580,240 @@ class MdocVerifierTest {
                 put("status", Uint(0UL))
             },
         )
+    }
+
+    /**
+     * DeviceSigned を含む有効な DeviceResponse CBOR バイト列を構築するヘルパー。
+     *
+     * @param nonce OID4VP Authorization Request の nonce（responseUri = testResponseUri を使用）
+     * @param useWrongKey true の場合、MSO の deviceKey とは別の鍵で deviceSigned に署名する（検証失敗シナリオ用）
+     */
+    private fun buildValidDeviceResponseWithDeviceSigned(
+        nonce: String,
+        useWrongKey: Boolean = false,
+    ): ByteArray =
+        kotlinx.coroutines.runBlocking {
+            buildValidDeviceResponseWithDeviceSignedSuspend(nonce, testResponseUri, useWrongKey)
+        }
+
+    private suspend fun buildValidDeviceResponseWithDeviceSignedSuspend(
+        nonce: String,
+        responseUri: String,
+        useWrongKey: Boolean,
+    ): ByteArray {
+        val docType = "org.iso.23220.photoid.1"
+
+        val issuerKp = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val issuerCert = generateSelfSignedCert(issuerKp.private as ECPrivateKey, issuerKp.public as ECPublicKey)
+
+        val walletKp = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val walletPubKey = walletKp.public as ECPublicKey
+        val walletPrivKey = walletKp.private as ECPrivateKey
+
+        fun normalize(bytes: ByteArray): ByteArray =
+            when {
+                bytes.size == 33 && bytes[0] == 0.toByte() -> bytes.copyOfRange(1, 33)
+                bytes.size < 32 -> ByteArray(32 - bytes.size) + bytes
+                else -> bytes
+            }
+        val holderKey =
+            EcPublicKeyDoubleCoordinate(
+                EcCurve.P256,
+                normalize(walletPubKey.w.affineX.toByteArray()),
+                normalize(walletPubKey.w.affineY.toByteArray()),
+            )
+
+        val namespace = "org.iso.23220.2"
+        val credential = buildTestCredential()
+        val issuerNamespaces =
+            buildIssuerNamespaces {
+                addNamespace(namespace) {
+                    addDataElement("family_name", credential.familyName.toDataItem())
+                    addDataElement("given_name", credential.givenName.toDataItem())
+                    addDataElement("birth_date", credential.birthDate.toDataItemFullDate())
+                    addDataElement("issue_date", credential.issueDate.toDataItemFullDate())
+                    addDataElement("expiry_date", credential.expiryDate.toDataItemFullDate())
+                    addDataElement("issuing_country", credential.issuingCountry.toDataItem())
+                    addDataElement("issuing_authority_unicode", credential.issuingAuthority.toDataItem())
+                }
+            }
+
+        val nowSec = Clock.System.now().epochSeconds
+        val now = kotlinx.datetime.Instant.fromEpochSeconds(nowSec)
+        val validFrom = kotlinx.datetime.Instant.fromEpochSeconds(nowSec - 60)
+        val validUntil = kotlinx.datetime.Instant.fromEpochSeconds(nowSec + 365L * 24 * 3600)
+        val valueDigests = issuerNamespaces.getValueDigests(Algorithm.SHA256)
+        val mso =
+            MobileSecurityObject(
+                version = "1.0",
+                digestAlgorithm = Algorithm.SHA256,
+                valueDigests = valueDigests,
+                deviceKey = holderKey,
+                docType = docType,
+                signedAt = now,
+                validFrom = validFrom,
+                validUntil = validUntil,
+                expectedUpdate = null,
+            )
+
+        val taggedEncodedMso = Cbor.encode(Tagged(Tagged.ENCODED_CBOR, Bstr(Cbor.encode(mso.toDataItem()))))
+        val multipazPrivKey = (issuerKp.private as ECPrivateKey).toEcPrivateKey(issuerKp.public, EcCurve.P256)
+        val multipazCert = X509Cert(ByteString(issuerCert.encoded))
+        val certChain = X509CertChain(listOf(multipazCert))
+        val signingKey = AsymmetricKey.X509CertifiedExplicit(certChain, multipazPrivKey)
+
+        val issuerAuth =
+            kotlinx.coroutines.runBlocking {
+                Cose.coseSign1Sign(
+                    signingKey,
+                    taggedEncodedMso,
+                    includeMessageInPayload = true,
+                    protectedHeaders =
+                        mapOf(
+                            CoseNumberLabel(Cose.COSE_LABEL_ALG) to
+                                Algorithm.ES256.coseAlgorithmIdentifier!!.toDataItem(),
+                        ),
+                    unprotectedHeaders =
+                        mapOf(
+                            CoseNumberLabel(Cose.COSE_LABEL_X5CHAIN) to signingKey.certChain.toDataItem(),
+                        ),
+                )
+            }
+
+        // DeviceNameSpaces = Tagged(24, Bstr(encoded_empty_map))
+        val deviceNameSpacesBytes = Cbor.encode(buildCborMap {})
+        val deviceNameSpacesItem = Tagged(Tagged.ENCODED_CBOR, Bstr(deviceNameSpacesBytes))
+
+        // OID4VP SessionTranscript の再構築（MdocVerifier.buildOid4vpSessionTranscript と同じロジック）
+        val clientId = responseUri
+        val handoverInput = (clientId + nonce + responseUri).toByteArray(Charsets.UTF_8)
+        val oid4vpNonce = MessageDigest.getInstance("SHA-256").digest(handoverInput)
+        val handoverBytes =
+            Cbor.encode(
+                buildCborArray {
+                    add(Bstr(oid4vpNonce))
+                    add(nonce.toDataItem())
+                },
+            )
+        // SessionTranscript = [null, null, OID4VPHandover]
+        val sessionTranscriptBytes = byteArrayOf(0x83.toByte(), 0xF6.toByte(), 0xF6.toByte()) + handoverBytes
+        val sessionTranscriptItem = Cbor.decode(sessionTranscriptBytes)
+
+        // DeviceAuthentication = ["DeviceAuthentication", SessionTranscript, DocType, DeviceNameSpacesBytes]
+        val deviceAuthenticationBytes =
+            Cbor.encode(
+                buildCborArray {
+                    add("DeviceAuthentication".toDataItem())
+                    add(sessionTranscriptItem)
+                    add(docType.toDataItem())
+                    add(deviceNameSpacesItem)
+                },
+            )
+
+        // Protected header = {1: -7} (ES256)
+        val deviceProtectedHeaderBytes = byteArrayOf(0xA1.toByte(), 0x01, 0x26.toByte())
+
+        // Sig_Structure（デタッチドペイロード）
+        val sigStructureBytes =
+            Cbor.encode(
+                buildCborArray {
+                    add("Signature1".toDataItem())
+                    add(Bstr(deviceProtectedHeaderBytes))
+                    add(Bstr(ByteArray(0)))
+                    add(Bstr(deviceAuthenticationBytes))
+                },
+            )
+
+        // Wallet 秘密鍵（または検証失敗シナリオ用の別鍵）で署名
+        val signingPrivKey =
+            if (useWrongKey) {
+                KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair().private as ECPrivateKey
+            } else {
+                walletPrivKey
+            }
+        val javaSig = Signature.getInstance("SHA256withECDSA")
+        javaSig.initSign(signingPrivKey)
+        javaSig.update(sigStructureBytes)
+        val rawSig = derEcdsaSignatureToRaw(javaSig.sign())
+
+        // Device COSE_Sign1 配列を構築: [bstr(protected), {}, null, bstr(sig)]
+        val deviceCoseSign1 = buildDeviceCoseSign1Array(deviceProtectedHeaderBytes, rawSig)
+
+        val deviceAuthMap = buildCborMap { put("deviceSignature", deviceCoseSign1) }
+        val deviceSignedMap =
+            buildCborMap {
+                put("nameSpaces", deviceNameSpacesItem)
+                put("deviceAuth", deviceAuthMap)
+            }
+
+        val issuerSignedMap =
+            buildCborMap {
+                put("nameSpaces", issuerNamespaces.toDataItem())
+                put("issuerAuth", org.multipaz.cbor.RawCbor(Cbor.encode(issuerAuth.toDataItem())))
+            }
+        val document =
+            buildCborMap {
+                put("docType", docType.toDataItem())
+                put("issuerSigned", issuerSignedMap)
+                put("deviceSigned", deviceSignedMap)
+            }
+        return Cbor.encode(
+            buildCborMap {
+                put("version", "1.0".toDataItem())
+                put("documents", buildCborArray { add(document) })
+                put("status", Uint(0UL))
+            },
+        )
+    }
+
+    /**
+     * Device COSE_Sign1 配列 [bstr(protected), {}, null, bstr(sig)] を構築して CborArray として返す。
+     * デタッチドペイロードのため items[2] は CBOR null (0xF6)。
+     */
+    private fun buildDeviceCoseSign1Array(
+        protectedHeaderBytes: ByteArray,
+        signatureBytes: ByteArray,
+    ): CborArray {
+        // [bstr(protected), {}, null, bstr(sig)] を raw CBOR bytes で組み立てる
+        val content =
+            Cbor.encode(Bstr(protectedHeaderBytes)) +
+                byteArrayOf(0xA0.toByte()) + // empty map {}
+                byteArrayOf(0xF6.toByte()) + // null
+                Cbor.encode(Bstr(signatureBytes))
+        // 0x84 = CBOR array(4)
+        return Cbor.decode(byteArrayOf(0x84.toByte()) + content) as CborArray
+    }
+
+    /**
+     * Java Signature API が返す DER 形式の ECDSA 署名を
+     * COSE 形式の raw 形式（r || s、各 32 バイト）に変換する。
+     */
+    private fun derEcdsaSignatureToRaw(der: ByteArray): ByteArray {
+        var i = 0
+        require(der[i++] == 0x30.toByte()) { "Expected DER SEQUENCE" }
+        // Length フィールドをスキップ（1 バイトまたは 2 バイト）
+        if (der[i].toInt() and 0x80 != 0) {
+            i += 1 + (der[i].toInt() and 0x7F)
+        } else {
+            i++
+        }
+        // INTEGER r
+        require(der[i++] == 0x02.toByte()) { "Expected INTEGER tag for r" }
+        val rLen = der[i++].toInt() and 0xFF
+        val r = der.copyOfRange(i, i + rLen)
+        i += rLen
+        // INTEGER s
+        require(der[i++] == 0x02.toByte()) { "Expected INTEGER tag for s" }
+        val sLen = der[i++].toInt() and 0xFF
+        val s = der.copyOfRange(i, i + sLen)
+
+        fun toFixed32(bytes: ByteArray): ByteArray =
+            when {
+                bytes.size == 33 && bytes[0] == 0.toByte() -> bytes.copyOfRange(1, 33)
+                bytes.size < 32 -> ByteArray(32 - bytes.size) + bytes
+                else -> bytes
+            }
+        return toFixed32(r) + toFixed32(s)
     }
 
     private data class TestCredential(

@@ -174,7 +174,7 @@ domain/
 infrastructure/
   multipaz/MdocVerifier.kt                    # DeviceResponse CBOR を検証し VerificationResult を返す
                                               # trustedCertificates: 信頼済み発行者証明書リスト（空=開発モード警告）
-                                              # ※ DeviceSigned nonce 検証は未実装（TODO）
+                                              # DeviceSigned nonce 検証実装済み（ISO 18013-7:2024 §B.4.4 OID4VP Handover）
   redis/RedisVerificationSessionRepository.kt # Redis 実装（REDIS_URL 設定時に使用）
 
 application/
@@ -288,6 +288,6 @@ IssuerSignedItem = { "digestID": uint, "random": bstr, "elementIdentifier": tstr
 - **セッション管理**: `REDIS_URL` 設定で Redis、未設定でインメモリ。InMemory は再起動でリセット
 - **発行者鍵**: 自己署名証明書。本番では CA 署名の証明書チェーンに差し替える
 - **Verifier の証明書信頼**: `TRUSTED_ISSUER_CERT` 環境変数で信頼済み PEM ファイルを指定する。未設定時は WARN ログを出力して検証をスキップ（開発専用）。本番では IACA (Issuing Authority Certificate Authority) のルート証明書を設定すること
-- **Verifier の nonce 検証**: OID4VP の nonce は DeviceSigned > DeviceAuthentication > SessionTranscript に含まれるが、現状は DeviceSigned の解析・署名検証が未実装。WARN ログで警告を出力中。本番導入前に実装が必要
+- **Verifier の nonce 検証**: OID4VP の nonce は DeviceSigned の署名検証（ISO 18013-7:2024 §B.4.4 OID4VP Handover 形式）で確認する。`responseUri` を `MdocVerifier` に渡すことで有効化。deviceSigned が存在しない場合や responseUri が未設定の場合は WARN ログを出力して続行する（開発用）。フォーマットは Multipaz Compose Wallet 0.97.0 との E2E テストで要確認
 - **CSRF 保護**: UserSession に csrfToken を保持し /issue POST で検証。Cookie の SameSite=Strict と合わせた多層防御
 - **Multipaz のリポジトリ**: `google()` (GMaven) に publish されている

@@ -46,7 +46,8 @@ fun Application.module() {
 
     // インフラ層
     val trustedCertificates = loadTrustedCertificates(trustedCertPath)
-    val mdocVerifier = MdocVerifier(trustedCertificates)
+    val responseUri = "$baseUrl/verifier/response"
+    val mdocVerifier = MdocVerifier(trustedCertificates, responseUri)
 
     // ドメイン層
     val redisUrl = config.propertyOrNull("session.redisUrl")?.getString()?.takeIf { it.isNotBlank() }

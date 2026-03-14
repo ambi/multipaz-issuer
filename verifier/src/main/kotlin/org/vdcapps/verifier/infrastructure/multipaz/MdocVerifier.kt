@@ -9,12 +9,21 @@ import org.multipaz.cbor.Tagged
 import org.multipaz.cbor.Tstr
 import org.multipaz.cbor.Uint
 import org.multipaz.cbor.buildCborArray
+import org.multipaz.crypto.EcPublicKeyDoubleCoordinate
 import org.multipaz.mdoc.mso.MobileSecurityObject
 import org.slf4j.LoggerFactory
 import org.vdcapps.verifier.domain.verification.VerificationResult
+import java.math.BigInteger
+import java.security.AlgorithmParameters
+import java.security.KeyFactory
+import java.security.MessageDigest
 import java.security.Signature
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
 import java.time.Instant
 
 /**
@@ -24,10 +33,13 @@ import java.time.Instant
  * @param trustedCertificates 信頼する発行者証明書のリスト。
  *   空の場合は開発モードとして警告を出力して証明書検証をスキップする。
  *   本番環境では TRUSTED_ISSUER_CERT で必ず設定すること。
+ * @param responseUri OID4VP Authorization Request の response_uri（= client_id）。
+ *   DeviceSigned の SessionTranscript 再構築に使用する。空文字の場合は DeviceSigned 検証をスキップする。
  */
 @OptIn(kotlin.time.ExperimentalTime::class)
 class MdocVerifier(
     private val trustedCertificates: List<X509Certificate> = emptyList(),
+    private val responseUri: String = "",
 ) {
     private val logger = LoggerFactory.getLogger(MdocVerifier::class.java)
 
@@ -87,14 +99,15 @@ class MdocVerifier(
             issuerSigned.getByString("nameSpaces")?.asMap()
                 ?: throw IllegalArgumentException("IssuerSigned に nameSpaces がありません")
 
-        // nonce は OID4VP の DeviceSigned > DeviceAuthentication > SessionTranscript に含まれる。
-        // DeviceSigned の署名検証（DeviceAuthentication 構造の解析）は現時点では未実装。
-        // TODO: DeviceSigned を解析して nonce を検証し、リプレイ攻撃を完全に防止すること。
-        if (expectedNonce != null) {
+        // DeviceSigned の署名検証（nonce の OID4VP バインディング確認）
+        val deviceSigned = document.getByString("deviceSigned")?.asMap()
+        if (deviceSigned != null) {
+            verifyDeviceSigned(deviceSigned, docType, mso, expectedNonce)
+        } else if (expectedNonce != null) {
             logger.warn(
-                "SECURITY WARNING: DeviceSigned の nonce 検証は未実装です。" +
-                    "vp_token のリプレイ攻撃を防ぐために DeviceAuthentication の解析と署名検証を実装してください。" +
-                    " expectedNonce=${expectedNonce.take(8)}...",
+                "SECURITY WARNING: DeviceResponse に deviceSigned が含まれていません。" +
+                    "nonce=${expectedNonce.take(8)}... の検証をスキップします。" +
+                    "本番環境では deviceSigned を含む Wallet を使用してください。",
             )
         }
 
@@ -105,6 +118,158 @@ class MdocVerifier(
             validFrom = validFrom,
             validUntil = validUntil,
         )
+    }
+
+    // ---- DeviceSigned 検証 ----
+
+    /**
+     * DeviceSigned を検証する。
+     *
+     * ISO 18013-5:2021 §9.1.3 に基づき以下を確認する:
+     * 1. deviceSignature（COSE_Sign1）の署名が MSO の deviceKey で正しく検証できること
+     * 2. DeviceAuthentication に埋め込まれた SessionTranscript の nonce が expectedNonce と一致すること
+     *
+     * SessionTranscript は ISO 18013-7:2024 §B.4.4 に定義された OID4VP Handover 形式で再構築する:
+     * ```
+     * SessionTranscript = [null, null, OID4VPHandover]
+     * OID4VPHandover = [OID4VPNonce, nonce]
+     * OID4VPNonce = SHA-256(clientId || nonce || responseUri)   ; clientId == responseUri の場合
+     * ```
+     *
+     * @param deviceSigned DeviceResponse から抽出した deviceSigned CBOR マップ
+     * @param docType Document の docType 文字列
+     * @param mso IssuerAuth から検証済みの MSO（deviceKey を含む）
+     * @param expectedNonce OID4VP Authorization Request で発行した nonce
+     */
+    private fun verifyDeviceSigned(
+        deviceSigned: CborMap,
+        docType: String,
+        mso: MobileSecurityObject,
+        expectedNonce: String?,
+    ) {
+        val nameSpacesItem =
+            deviceSigned.getByString("nameSpaces")
+                ?: throw IllegalArgumentException("deviceSigned に nameSpaces がありません")
+
+        val deviceAuth =
+            deviceSigned.getByString("deviceAuth")?.asMap()
+                ?: throw IllegalArgumentException("deviceSigned に deviceAuth がありません")
+
+        val deviceSignatureArray =
+            deviceAuth.getByString("deviceSignature")?.asArray()
+                ?: throw IllegalArgumentException("deviceAuth に deviceSignature がありません")
+
+        if (deviceSignatureArray.items.size < 4) {
+            throw IllegalArgumentException("deviceSignature COSE_Sign1 の要素数が不正: ${deviceSignatureArray.items.size}")
+        }
+
+        val protectedHeaderBytes = deviceSignatureArray.items[0].asByteArray()
+        // items[2] は nil（デタッチドペイロード）
+        val signatureBytes = deviceSignatureArray.items[3].asByteArray()
+
+        if (expectedNonce == null) {
+            logger.warn("deviceSigned が存在しますが expectedNonce が null のため nonce 検証をスキップします")
+            return
+        }
+
+        if (responseUri.isBlank()) {
+            logger.warn(
+                "SECURITY WARNING: responseUri が設定されていないため DeviceSigned の nonce 検証をスキップします。" +
+                    "MdocVerifier に responseUri を設定してください。",
+            )
+            return
+        }
+
+        // OID4VP SessionTranscript を再構築する（ISO 18013-7:2024 §B.4.4）
+        val sessionTranscriptBytes = buildOid4vpSessionTranscript(expectedNonce)
+        val sessionTranscriptItem = Cbor.decode(sessionTranscriptBytes)
+
+        // DeviceAuthentication = ["DeviceAuthentication", SessionTranscript, DocType, DeviceNameSpacesBytes]
+        val deviceAuthenticationBytes =
+            Cbor.encode(
+                buildCborArray {
+                    add(Tstr("DeviceAuthentication"))
+                    add(sessionTranscriptItem)
+                    add(Tstr(docType))
+                    add(nameSpacesItem) // Tagged(24, bstr) のまま埋め込む
+                },
+            )
+
+        // Sig_Structure（デタッチドペイロード）: ["Signature1", protected_bytes, b"", bstr(DeviceAuthentication)]
+        val sigStructureBytes =
+            Cbor.encode(
+                buildCborArray {
+                    add(Tstr("Signature1"))
+                    add(Bstr(protectedHeaderBytes))
+                    add(Bstr(ByteArray(0))) // empty external AAD
+                    add(Bstr(deviceAuthenticationBytes)) // DeviceAuthentication を payload として提供
+                },
+            )
+
+        val devicePublicKey = deviceKeyToJavaPublicKey(mso.deviceKey)
+        val derSig = rawEcdsaSignatureToDer(signatureBytes)
+
+        val sig = Signature.getInstance("SHA256withECDSA")
+        sig.initVerify(devicePublicKey)
+        sig.update(sigStructureBytes)
+
+        if (!sig.verify(derSig)) {
+            throw SecurityException(
+                "DeviceSigned の署名検証に失敗しました。" +
+                    "nonce またはレスポンス URI が一致しない可能性があります（expectedNonce=${expectedNonce.take(8)}...）",
+            )
+        }
+
+        logger.info("DeviceSigned 署名検証 OK: nonce=${expectedNonce.take(8)}...")
+    }
+
+    /**
+     * OID4VP SessionTranscript を CBOR バイト列として構築する。
+     *
+     * ISO 18013-7:2024 §B.4.4（OID4VP Handover、`request_uri` パターン）に基づく:
+     * ```
+     * SessionTranscript = [null, null, OID4VPHandover]
+     * OID4VPHandover    = [OID4VPNonce, nonce]
+     * OID4VPNonce       = SHA-256(clientId || nonce || responseUri)
+     * ```
+     * `client_id_scheme = "redirect_uri"` の場合 clientId == responseUri。
+     *
+     * NOTE: フォーマットは Multipaz Compose Wallet 0.97.0 + OID4VP draft 20 + ISO 18013-7:2024 を想定。
+     *       実際の Wallet との相互運用性は E2E テストで確認すること。
+     */
+    private fun buildOid4vpSessionTranscript(nonce: String): ByteArray {
+        // client_id_scheme = redirect_uri の場合、clientId == responseUri
+        val clientId = responseUri
+        val handoverInput = (clientId + nonce + responseUri).toByteArray(Charsets.UTF_8)
+        val oid4vpNonce = MessageDigest.getInstance("SHA-256").digest(handoverInput)
+
+        // OID4VPHandover = [OID4VPNonce (bstr), nonce (tstr)]
+        val handoverBytes =
+            Cbor.encode(
+                buildCborArray {
+                    add(Bstr(oid4vpNonce))
+                    add(Tstr(nonce))
+                },
+            )
+
+        // SessionTranscript = [null, null, OID4VPHandover]
+        // CBOR: 0x83 (array 3) | 0xF6 (null) | 0xF6 (null) | <handover bytes>
+        return byteArrayOf(0x83.toByte(), 0xF6.toByte(), 0xF6.toByte()) + handoverBytes
+    }
+
+    /**
+     * Multipaz [org.multipaz.crypto.EcPublicKey] を Java [java.security.PublicKey] に変換する。
+     * P-256（secp256r1）のみ対応。MSO の deviceKey 検証用。
+     */
+    private fun deviceKeyToJavaPublicKey(key: org.multipaz.crypto.EcPublicKey): java.security.PublicKey {
+        val coord =
+            key as? EcPublicKeyDoubleCoordinate
+                ?: throw IllegalArgumentException("サポートされていない EcPublicKey の型: ${key::class.simpleName}")
+        val params = AlgorithmParameters.getInstance("EC")
+        params.init(ECGenParameterSpec("secp256r1"))
+        val ecParams = params.getParameterSpec(ECParameterSpec::class.java)
+        val ecPoint = ECPoint(BigInteger(1, coord.x), BigInteger(1, coord.y))
+        return KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(ecPoint, ecParams))
     }
 
     // ---- 発行者証明書信頼検証 ----
@@ -200,7 +365,7 @@ class MdocVerifier(
     // ---- 署名検証 ----
 
     /**
-     * Sig_Structure = ["Signature1", protected_bytes, external_aad(空), payload_bytes]
+     * IssuerAuth の Sig_Structure = ["Signature1", protected_bytes, external_aad(空), payload_bytes]
      */
     private fun verifyCoseSign1(
         protectedHeaderBytes: ByteArray,

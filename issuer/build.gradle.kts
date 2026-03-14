@@ -61,7 +61,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
 
     // JWT handling for OID4VCI proof validation (holder proof-of-possession)
-    implementation("com.nimbusds:nimbus-jose-jwt:9.47")
+    implementation("com.nimbusds:nimbus-jose-jwt:10.8")
 
     // X.509 certificate generation for issuer signing key
     implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")

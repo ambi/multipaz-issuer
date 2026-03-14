@@ -432,6 +432,14 @@ LOG_LEVEL_KTOR=WARN                           # Ktor フレームワークログ
 ./verifier/build/install/verifier/bin/verifier
 ```
 
+### テスト規約
+
+- **単体テスト**: ドメインロジック・インフラ実装は `src/test/kotlin/...` の対応パッケージに配置
+- **統合テスト**: Ktor ルートは `web/routes/` または `web/` パッケージのテストに配置
+- **テスト用ヘルパー**: 共通セットアップは同一ファイルの `private` 関数・クラスとして定義
+- **テスト間の独立性**: グローバルな状態（`RateLimiter` 等）は `@BeforeTest` でリセット
+- **テスト名**: 日本語で「〜する場合は〜を返す」形式で記述
+
 ### cloudflared でローカル開発（HTTPS が必要な場合）
 
 ウォレットアプリが Issuer と通信できるように HTTPS で公開するために、cloudflared を使う。
@@ -530,6 +538,10 @@ Issuer のキー設計:
 
 自己署名証明書を使用している。Wallet はルート証明書を信頼リストで管理するため、本番環境では認証局（CA）が署名した証明書チェーンに差し替える必要がある。
 
+### Entra ID アクセストークンの非保存
+
+`entraAccessToken` は `UserSession`（Cookie）に含めない。Cookie はブラウザに保存されるため、アクセストークンを含めるとトークン漏洩リスクが生じる。Graph API から取得したユーザー情報（氏名・メール・顔写真）のみをセッションに保存する。
+
 ### proof JWT の dual-format 対応
 
 OID4VCI の proof フィールドは仕様改訂で形式が変わった。本実装は新仕様（`proofs.jwt` 配列）と旧仕様（`proof.jwt` 文字列）の両方を受け入れる。
@@ -554,4 +566,8 @@ nonce = Base64Url(exp(8B) || jti(16B) || HMAC-SHA256(exp||jti))
 
 ### Verifier の署名検証
 
-`MdocVerifier` は mdoc の IssuerAuth（COSE_Sign1）を Java 標準の `Signature.getInstance("SHA256withECDSA")` で検証する。発行者証明書の信頼性検証（ルート証明書との照合）は行っておらず、本番環境では IACA ルート証明書による検証を追加する必要がある。
+`MdocVerifier` は以下を検証する。
+
+- **IssuerAuth（COSE_Sign1）署名**: `Signature.getInstance("SHA256withECDSA")` で ES256 署名を検証
+- **発行者証明書の信頼性**: `TRUSTED_ISSUER_CERT` で設定した PEM ファイルと照合。未設定時は WARN ログを出力して検証をスキップ（開発専用）。本番では IACA ルート証明書を設定すること
+- **DeviceSigned nonce**: ISO 18013-7:2024 §B.4.4 OID4VP Handover 形式で SessionTranscript を再構築して署名検証。`responseUri` 未設定時はスキップ

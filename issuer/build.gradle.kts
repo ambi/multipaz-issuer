@@ -64,8 +64,8 @@ dependencies {
     implementation("com.nimbusds:nimbus-jose-jwt:9.47")
 
     // X.509 certificate generation for issuer signing key
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
-    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.83")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.83")
 
     // QR code generation for credential offer page
     implementation("com.google.zxing:core:3.5.3")

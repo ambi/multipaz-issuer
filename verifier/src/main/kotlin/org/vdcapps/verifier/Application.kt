@@ -9,6 +9,7 @@ import org.vdcapps.verifier.infrastructure.multipaz.MdocVerifier
 import org.vdcapps.verifier.infrastructure.redis.RedisVerificationSessionRepository
 import org.vdcapps.verifier.web.plugins.configureRouting
 import org.vdcapps.verifier.web.plugins.configureSerialization
+import redis.clients.jedis.JedisPool
 
 fun main(args: Array<String>): Unit =
     io.ktor.server.netty.EngineMain
@@ -25,9 +26,11 @@ fun Application.module() {
 
     // ドメイン層
     val redisUrl = config.propertyOrNull("session.redisUrl")?.getString()?.takeIf { it.isNotBlank() }
+    var redisPool: JedisPool? = null
     val verificationRepository: VerificationSessionRepository =
         if (redisUrl != null) {
             RedisVerificationSessionRepository(redisUrl).also { repo ->
+                redisPool = repo.pool
                 environment.monitor.subscribe(io.ktor.server.application.ApplicationStopped) { repo.close() }
             }
         } else {
@@ -48,5 +51,10 @@ fun Application.module() {
         baseUrl = baseUrl,
         verificationService = verificationService,
         verifyCredentialUseCase = verifyCredentialUseCase,
+        checkReady = {
+            redisPool?.let { pool ->
+                runCatching { pool.resource.use { jedis -> jedis.ping() == "PONG" } }.getOrDefault(false)
+            } ?: true
+        },
     )
 }

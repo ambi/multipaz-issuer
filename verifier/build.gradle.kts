@@ -37,6 +37,8 @@ dependencies {
     implementation("io.ktor:ktor-server-freemarker:$ktorVersion")
     implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-server-call-logging:$ktorVersion")
+    implementation("io.ktor:ktor-server-call-id:$ktorVersion")
+    implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 
     // Kotlinx
@@ -52,6 +54,7 @@ dependencies {
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.12")
+    implementation("net.logstash.logback:logstash-logback-encoder:8.0")
 
     // Testing
     testImplementation(kotlin("test-junit5"))

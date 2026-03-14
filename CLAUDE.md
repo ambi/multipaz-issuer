@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ドキュメント更新ルール
+
+**コードを変更したら、必ず同じコミットで以下のドキュメントも更新すること。**
+
+| 変更の種類 | 更新対象 |
+| --- | --- |
+| エンドポイントの追加・変更・削除 | `CLAUDE.md`（エンドポイント表）、`README.md`（API エンドポイント表） |
+| 環境変数の追加・変更・削除 | `CLAUDE.md`（必要な環境変数）、`README.md`（環境変数セクション） |
+| ファイル構成の変更（新規クラス追加等） | `CLAUDE.md`（レイヤー構成）、`README.md`（プロジェクト構造） |
+| 依存ライブラリの追加・変更 | `README.md`（技術スタック表） |
+| アーキテクチャ・設計判断の変更 | `README.md`（設計上の判断と制約） |
+| プラグイン・ミドルウェアの追加・変更 | `CLAUDE.md`（該当プラグインの説明） |
+
+ドキュメントの更新を省略してはならない。「後で更新する」は認めない。
+
 ## プロジェクト概要
 
 ISO/IEC TS 23220-4 Photo ID の Verifiable Credential (mdoc 形式) の **Issuer** と **Verifier** を含む Kotlin/JVM ウェブアプリケーション。
@@ -14,6 +29,7 @@ ISO/IEC TS 23220-4 Photo ID の Verifiable Credential (mdoc 形式) の **Issuer
 - **ライブラリ**: Multipaz 0.97.0 (GMaven `google()`)、Ktor 3.0.3 + Netty
 - **CSSフレームワーク**: Tailwind
 - **Wallet**: Multipaz Compose Wallet で VC の発行・提示を検証済み前提
+- **ログ**: Logback 1.5.12 + logstash-logback-encoder 8.0（JSON 構造化ログ）
 
 ## プロジェクト構成
 
@@ -61,6 +77,10 @@ KEY_STORE_PASSWORD=changeit
 ISSUING_COUNTRY=JP
 ISSUING_AUTHORITY="VDC Apps Issuer"
 REDIS_URL=redis://localhost:6379            # 未設定時はインメモリ（issuer/verifier 共通）
+# ログ設定（issuer/verifier 共通）
+LOG_FORMAT=json                             # json（デフォルト）または text（ローカル開発向け）
+LOG_LEVEL_APP=INFO                          # アプリログレベル（DEBUG/INFO/WARN/ERROR）
+LOG_LEVEL_KTOR=WARN                         # Ktor フレームワークログレベル
 ```
 
 Azure でのアプリ登録時に必要な設定:
@@ -95,13 +115,16 @@ application/
 
 web/
   plugins/Auth.kt                        # Ktor Sessions + OAuth (Entra ID) 設定、UserSession 定義
-  plugins/Routing.kt                     # FreeMarker + CallLogging、全ルートの登録
+                                         # cookie に SameSite=Strict を設定
+  plugins/Routing.kt                     # FreeMarker + CallId + CallLogging + StatusPages、全ルートの登録
   plugins/Serialization.kt               # ContentNegotiation (JSON)
   routes/HomeRoutes.kt                   # GET / と /profile
   routes/AuthRoutes.kt                   # /auth/login, /auth/callback, /auth/logout
+  routes/HealthRoutes.kt                 # GET /health（liveness）、GET /readiness（Redis 疎通確認）
   routes/Oid4vciRoutes.kt                # OID4VCI エンドポイント群
 
 Application.kt                           # DI 相当の配線と module() 関数
+                                         # HTTP クライアント（タイムアウト付き）、Redis pool 管理
 ```
 
 #### verifier/ (`org.vdcapps.verifier`)
@@ -121,12 +144,21 @@ application/
   VerifyCredentialUseCase.kt                  # 証明書検証のユースケース
 
 web/
-  plugins/Routing.kt                          # FreeMarker + CallLogging、全ルートの登録
+  plugins/Routing.kt                          # FreeMarker + CallId + CallLogging + StatusPages、全ルートの登録
   plugins/Serialization.kt                    # ContentNegotiation (JSON)
+  routes/HealthRoutes.kt                      # GET /health（liveness）、GET /readiness（Redis 疎通確認）
   routes/VerifierRoutes.kt                    # OID4VP エンドポイント群
 
 Application.kt                                # DI 相当の配線と module() 関数
+                                              # Redis pool 管理
 ```
+
+### 共通エンドポイント（Issuer・Verifier 両方）
+
+| エンドポイント   | 役割                                                            |
+| ---------------- | --------------------------------------------------------------- |
+| `GET /health`    | Liveness probe（常に 200 OK）                                   |
+| `GET /readiness` | Readiness probe（Redis 設定時は ping で疎通確認。503 = 未準備） |
 
 ### OID4VCI エンドポイント（Issuer）
 

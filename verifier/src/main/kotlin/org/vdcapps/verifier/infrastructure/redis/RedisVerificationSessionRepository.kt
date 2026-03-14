@@ -9,6 +9,7 @@ import org.vdcapps.verifier.domain.verification.VerificationResult
 import org.vdcapps.verifier.domain.verification.VerificationSession
 import org.vdcapps.verifier.domain.verification.VerificationSessionRepository
 import redis.clients.jedis.JedisPool
+import redis.clients.jedis.JedisPoolConfig
 import java.io.Closeable
 import java.net.URI
 import java.time.Instant
@@ -85,7 +86,17 @@ class RedisVerificationSessionRepository(
     redisUrl: String,
 ) : VerificationSessionRepository,
     Closeable {
-    private val pool = JedisPool(URI(redisUrl))
+    val pool =
+        JedisPool(
+            JedisPoolConfig().apply {
+                maxTotal = 16
+                maxIdle = 8
+                minIdle = 2
+                testOnBorrow = true
+                testWhileIdle = true
+            },
+            URI(redisUrl),
+        )
 
     override suspend fun save(session: VerificationSession): Unit =
         withContext(Dispatchers.IO) {

@@ -16,9 +16,22 @@ RUN ./gradlew :verifier:dependencies --no-daemon -q
 COPY verifier/src verifier/src
 RUN ./gradlew :verifier:installDist --no-daemon
 
+# Runtime image
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
+
+# 非 root ユーザーで実行
+RUN groupadd --system appgroup && useradd --system --gid appgroup appuser
+
 COPY --from=builder /workspace/verifier/build/install/verifier/ .
+
+USER appuser
+
 EXPOSE 8080
 ENV PORT=8080
+ENV LOG_FORMAT=json
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:${PORT}/health || exit 1
+
 CMD ["bin/verifier"]

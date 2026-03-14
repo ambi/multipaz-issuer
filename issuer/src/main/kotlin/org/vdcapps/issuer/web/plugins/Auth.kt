@@ -37,6 +37,7 @@ fun Application.configureAuth(
             cookie.path = "/"
             cookie.httpOnly = true
             cookie.secure = redirectUri.startsWith("https")
+            cookie.extensions["SameSite"] = "Strict"
         }
     }
 

@@ -10,6 +10,7 @@ import org.vdcapps.issuer.domain.credential.IssuanceSession
 import org.vdcapps.issuer.domain.credential.IssuanceSessionRepository
 import org.vdcapps.issuer.domain.credential.PhotoIdCredential
 import redis.clients.jedis.JedisPool
+import redis.clients.jedis.JedisPoolConfig
 import java.io.Closeable
 import java.net.URI
 import java.time.Instant
@@ -97,7 +98,17 @@ class RedisIssuanceSessionRepository(
     redisUrl: String,
 ) : IssuanceSessionRepository,
     Closeable {
-    private val pool = JedisPool(URI(redisUrl))
+    val pool =
+        JedisPool(
+            JedisPoolConfig().apply {
+                maxTotal = 16
+                maxIdle = 8
+                minIdle = 2
+                testOnBorrow = true
+                testWhileIdle = true
+            },
+            URI(redisUrl),
+        )
 
     override suspend fun save(session: IssuanceSession): Unit =
         withContext(Dispatchers.IO) {

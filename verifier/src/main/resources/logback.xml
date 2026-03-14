@@ -1,14 +1,44 @@
 <configuration>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+    <!--
+        LOG_FORMAT 環境変数で出力形式を切り替える。
+        - json (デフォルト): コンテナ・ログ集約向け JSON 形式
+        - text: ローカル開発向け人間可読形式
+    -->
+    <property name="LOG_FORMAT" value="${LOG_FORMAT:-json}"/>
+
+    <appender name="STDOUT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeCallerData>false</includeCallerData>
+            <fieldNames>
+                <timestamp>time</timestamp>
+                <message>msg</message>
+                <logger>logger</logger>
+                <thread>thread</thread>
+                <levelValue>[ignore]</levelValue>
+            </fieldNames>
         </encoder>
     </appender>
 
-    <root level="INFO">
-        <appender-ref ref="STDOUT"/>
-    </root>
+    <appender name="STDOUT_TEXT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{requestId}] - %msg%n</pattern>
+        </encoder>
+    </appender>
 
-    <logger name="org.vdcapps.verifier" level="DEBUG"/>
-    <logger name="io.ktor" level="INFO"/>
+    <if condition='property("LOG_FORMAT").equals("text")'>
+        <then>
+            <root level="INFO">
+                <appender-ref ref="STDOUT_TEXT"/>
+            </root>
+        </then>
+        <else>
+            <root level="INFO">
+                <appender-ref ref="STDOUT_JSON"/>
+            </root>
+        </else>
+    </if>
+
+    <logger name="org.vdcapps.verifier" level="${LOG_LEVEL_APP:-INFO}"/>
+    <logger name="io.ktor" level="${LOG_LEVEL_KTOR:-WARN}"/>
+    <logger name="io.netty" level="WARN"/>
 </configuration>

@@ -2,6 +2,7 @@ package org.vdcapps.issuer
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -18,6 +19,7 @@ import org.vdcapps.issuer.infrastructure.redis.RedisIssuanceSessionRepository
 import org.vdcapps.issuer.web.plugins.configureAuth
 import org.vdcapps.issuer.web.plugins.configureRouting
 import org.vdcapps.issuer.web.plugins.configureSerialization
+import redis.clients.jedis.JedisPool
 
 fun main(args: Array<String>): Unit =
     io.ktor.server.netty.EngineMain
@@ -45,7 +47,13 @@ fun Application.module() {
             install(ContentNegotiation) {
                 json(Json { ignoreUnknownKeys = true })
             }
+            install(HttpTimeout) {
+                requestTimeoutMillis = 15_000
+                connectTimeoutMillis = 5_000
+                socketTimeoutMillis = 15_000
+            }
         }
+    environment.monitor.subscribe(io.ktor.server.application.ApplicationStopped) { httpClient.close() }
 
     // インフラ層
     val issuerKeyStore = IssuerKeyStore(keyStorePath, keyStorePassword)
@@ -54,9 +62,11 @@ fun Application.module() {
 
     // ドメイン層
     val redisUrl = config.propertyOrNull("session.redisUrl")?.getString()?.takeIf { it.isNotBlank() }
+    var redisPool: JedisPool? = null
     val issuanceRepository: IssuanceSessionRepository =
         if (redisUrl != null) {
             RedisIssuanceSessionRepository(redisUrl).also { repo ->
+                redisPool = repo.pool
                 environment.monitor.subscribe(io.ktor.server.application.ApplicationStopped) { repo.close() }
             }
         } else {
@@ -85,5 +95,10 @@ fun Application.module() {
         issueCredentialUseCase = issueCredentialUseCase,
         photoIdBuilder = photoIdBuilder,
         nonceStore = nonceStore,
+        checkReady = {
+            redisPool?.let { pool ->
+                runCatching { pool.resource.use { jedis -> jedis.ping() == "PONG" } }.getOrDefault(false)
+            } ?: true
+        },
     )
 }

@@ -52,7 +52,7 @@ jobs:
         run: ./gradlew test
 
       - name: Upload test reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-reports
@@ -88,14 +88,14 @@ jobs:
           test -x verifier/build/install/verifier/bin/verifier
 
       - name: Upload issuer distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: issuer-dist
           path: issuer/build/install/issuer/
           retention-days: 3
 
       - name: Upload verifier distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verifier-dist
           path: verifier/build/install/verifier/

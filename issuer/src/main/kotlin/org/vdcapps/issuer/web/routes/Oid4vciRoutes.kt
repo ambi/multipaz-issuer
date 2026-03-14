@@ -6,6 +6,7 @@ import com.google.zxing.client.j2se.MatrixToImageWriter
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.freemarker.FreeMarkerContent
+import io.ktor.server.plugins.origin
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
@@ -38,7 +39,7 @@ import org.vdcapps.issuer.infrastructure.multipaz.PhotoIdBuilder
 import org.vdcapps.issuer.infrastructure.multipaz.ProofJwtValidator
 import org.vdcapps.issuer.web.plugins.UserSession
 import org.vdcapps.issuer.web.util.RateLimiter
-import org.vdcapps.issuer.web.util.clientIp
+import org.vdcapps.issuer.web.util.RateLimiterPort
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 
@@ -51,6 +52,7 @@ fun Route.configureOid4vciRoutes(
     issueCredentialUseCase: IssueCredentialUseCase,
     photoIdBuilder: PhotoIdBuilder,
     nonceStore: NonceStore,
+    rateLimiter: RateLimiterPort = RateLimiter,
 ) {
     val proofJwtValidator = ProofJwtValidator(baseUrl, photoIdBuilder, nonceStore)
 
@@ -196,7 +198,7 @@ fun Route.configureOid4vciRoutes(
      * 認証不要。Wallet が /credential リクエスト前の proof JWT 生成に使う c_nonce を取得する。
      */
     post("/nonce") {
-        if (!RateLimiter.isAllowed("nonce:${call.clientIp()}", 60)) {
+        if (!rateLimiter.isAllowed("nonce:${call.request.origin.remoteHost}", 60)) {
             call.respond(HttpStatusCode.TooManyRequests, OidError("rate_limit_exceeded", "Too many nonce requests"))
             return@post
         }
@@ -215,7 +217,7 @@ fun Route.configureOid4vciRoutes(
      * pre-authorized_code を access_token に交換する。
      */
     post("/token") {
-        if (!RateLimiter.isAllowed("token:${call.clientIp()}", 10)) {
+        if (!rateLimiter.isAllowed("token:${call.request.origin.remoteHost}", 10)) {
             call.respond(HttpStatusCode.TooManyRequests, OidError("rate_limit_exceeded", "Too many token requests"))
             return@post
         }
@@ -248,13 +250,15 @@ fun Route.configureOid4vciRoutes(
                     return@post
                 }
 
+        val cNonce = nonceStore.generate()
         call.response.headers.append("Cache-Control", "no-store")
+        call.response.headers.append("DPoP-Nonce", cNonce)
         call.respond(
             buildJsonObject {
                 put("access_token", accessToken)
                 put("token_type", "DPoP")
                 put("expires_in", 300)
-                put("c_nonce", nonceStore.generate())
+                put("c_nonce", cNonce)
                 put("c_nonce_expires_in", 600)
             },
         )
@@ -265,7 +269,7 @@ fun Route.configureOid4vciRoutes(
      * proof JWT を検証して署名済み mdoc を発行する。
      */
     post("/credential") {
-        if (!RateLimiter.isAllowed("credential:${call.clientIp()}", 5)) {
+        if (!rateLimiter.isAllowed("credential:${call.request.origin.remoteHost}", 5)) {
             call.respond(HttpStatusCode.TooManyRequests, OidError("rate_limit_exceeded", "Too many credential requests"))
             return@post
         }

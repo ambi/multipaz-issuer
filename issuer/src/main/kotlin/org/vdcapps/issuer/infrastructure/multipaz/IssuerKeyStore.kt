@@ -10,6 +10,7 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.math.BigInteger
+import java.nio.channels.FileLock
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -45,18 +46,33 @@ class IssuerKeyStore(
     }
 
     private fun loadOrCreate(): Pair<PrivateKey, X509Certificate> {
-        val ks = KeyStore.getInstance("PKCS12")
         val file = File(keyStorePath)
+        file.parentFile?.mkdirs()
+
+        // 複数プロセスが同時に起動しても1つだけがキーを生成するようロックを取得する
+        val lockFile = File("${keyStorePath}.lock")
+        java.io.RandomAccessFile(lockFile, "rw").use { raf ->
+            val lock: FileLock = raf.channel.lock() // プロセス間ロック（blocking）
+            try {
+                return loadOrCreateUnderLock(file)
+            } finally {
+                lock.release()
+            }
+        }
+    }
+
+    private fun loadOrCreateUnderLock(file: File): Pair<PrivateKey, X509Certificate> {
+        val ks = KeyStore.getInstance("PKCS12")
 
         if (file.exists() && file.length() > 0) {
             file.inputStream().use { ks.load(it, keyStorePassword.toCharArray()) }
             val cert = ks.getCertificate(keyAlias) as X509Certificate
             val pk = ks.getKey(keyAlias, keyStorePassword.toCharArray()) as PrivateKey
-            logger.info("既存の発行者キーストアを読み込みました: $keyStorePath")
+            logger.info("既存の発行者キーストアを読み込みました: ${file.path}")
             return pk to cert
         }
 
-        logger.info("発行者キーを生成します: $keyStorePath")
+        logger.info("発行者キーを生成します: ${file.path}")
         val keyPair = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
         val now = System.currentTimeMillis()
         val subject = X500Name("CN=VDC Apps Issuer, O=VDC Apps, C=JP")
@@ -77,7 +93,6 @@ class IssuerKeyStore(
 
         ks.load(null, keyStorePassword.toCharArray())
         ks.setKeyEntry(keyAlias, keyPair.private, keyStorePassword.toCharArray(), arrayOf(cert))
-        file.parentFile?.mkdirs()
         file.outputStream().use { ks.store(it, keyStorePassword.toCharArray()) }
 
         return keyPair.private to cert

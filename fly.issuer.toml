@@ -9,12 +9,13 @@ primary_region = "nrt"
   ISSUING_COUNTRY = "JP"
   ISSUING_AUTHORITY = "VDC Apps Issuer"
   KEY_STORE_PATH = "/app/data/issuer-keystore.p12"
-  KEY_STORE_PASSWORD = "changeit"
 
 # Secrets (set via: fly secrets set -c fly.issuer.toml KEY=VALUE)
 # ENTRA_TENANT_ID
 # ENTRA_CLIENT_ID
 # ENTRA_CLIENT_SECRET
+# KEY_STORE_PASSWORD   (required: strong password to protect the issuer keystore)
+# NONCE_HMAC_SECRET    (required for multi-instance: 64 hex chars; generate: openssl rand -hex 32)
 # BASE_URL        (set after first deploy: https://<app-name>.fly.dev)
 # ENTRA_REDIRECT_URI  (https://<app-name>.fly.dev/auth/callback)
 

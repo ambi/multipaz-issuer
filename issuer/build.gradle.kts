@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
     application
+    jacoco
 }
 
 group = "org.vdcapps.issuer"
@@ -23,6 +24,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 val ktorVersion = "3.0.3"
+val micrometerVersion = "1.13.9"
 val multipazVersion = "0.97.0"
 val kotlinxSerializationVersion = "1.7.3"
 val kotlinxDatetimeVersion = "0.6.1"
@@ -44,6 +46,7 @@ dependencies {
     implementation("io.ktor:ktor-server-call-id:$ktorVersion")
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
     implementation("io.ktor:ktor-server-request-validation:$ktorVersion")
+    implementation("io.ktor:ktor-server-forwarded-header:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 
     // Ktor client (Entra ID OAuth token exchange + MS Graph API)
@@ -68,6 +71,10 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.zxing:javase:3.5.3")
 
+    // Metrics (Micrometer + Prometheus)
+    implementation("io.ktor:ktor-server-metrics-micrometer:$ktorVersion")
+    implementation("io.micrometer:micrometer-registry-prometheus:$micrometerVersion")
+
     // Redis client
     implementation("redis.clients:jedis:5.2.0")
 
@@ -86,4 +93,13 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)   // CI / SonarQube 連携用
+        html.required.set(true)  // ローカル確認用
+    }
 }

@@ -6,12 +6,18 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 import io.ktor.server.freemarker.FreeMarker
+import io.ktor.server.metrics.micrometer.MicrometerMetrics
 import io.ktor.server.plugins.callid.CallId
 import io.ktor.server.plugins.callid.callIdMdc
 import io.ktor.server.plugins.calllogging.CallLogging
+import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import io.micrometer.prometheusmetrics.PrometheusConfig
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
 import org.vdcapps.issuer.application.IssueCredentialUseCase
@@ -22,6 +28,8 @@ import org.vdcapps.issuer.infrastructure.multipaz.PhotoIdBuilder
 import org.vdcapps.issuer.web.routes.configureAuthRoutes
 import org.vdcapps.issuer.web.routes.configureHealthRoutes
 import org.vdcapps.issuer.web.routes.configureHomeRoutes
+import org.vdcapps.issuer.web.util.RateLimiter
+import org.vdcapps.issuer.web.util.RateLimiterPort
 import org.vdcapps.issuer.web.routes.configureOid4vciRoutes
 import java.util.UUID
 
@@ -34,8 +42,16 @@ fun Application.configureRouting(
     issueCredentialUseCase: IssueCredentialUseCase,
     photoIdBuilder: PhotoIdBuilder,
     nonceStore: NonceStore,
+    trustedProxyCount: Int = 1,
+    rateLimiter: RateLimiterPort = RateLimiter,
     checkReady: () -> Boolean = { true },
 ) {
+    // リバースプロキシ経由のクライアント IP を request.origin.remoteHost に反映する。
+    // trustedProxyCount 個のプロキシが X-Forwarded-For の末尾に追記したものとみなす。
+    install(XForwardedHeaders) {
+        skipLastProxies(trustedProxyCount)
+    }
+
     // HTTP セキュリティヘッダー
     val isHttps = baseUrl.startsWith("https")
     install(
@@ -61,6 +77,11 @@ fun Application.configureRouting(
             }
         },
     )
+
+    val prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+    install(MicrometerMetrics) {
+        registry = prometheusRegistry
+    }
 
     install(FreeMarker) {
         templateLoader = ClassTemplateLoader(this::class.java.classLoader, "templates")
@@ -89,6 +110,10 @@ fun Application.configureRouting(
         configureHealthRoutes(checkReady)
         configureHomeRoutes()
         configureAuthRoutes(entraIdClient)
-        configureOid4vciRoutes(baseUrl, issuanceService, issueCredentialUseCase, photoIdBuilder, nonceStore)
+        configureOid4vciRoutes(baseUrl, issuanceService, issueCredentialUseCase, photoIdBuilder, nonceStore, rateLimiter)
+        // Prometheus スクレイプエンドポイント（監視システムからのアクセスを想定）
+        get("/metrics") {
+            call.respondText(prometheusRegistry.scrape())
+        }
     }
 }

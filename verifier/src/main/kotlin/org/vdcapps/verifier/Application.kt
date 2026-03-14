@@ -1,6 +1,7 @@
 package org.vdcapps.verifier
 
 import io.ktor.server.application.Application
+import io.ktor.server.netty.EngineMain
 import org.slf4j.LoggerFactory
 import org.vdcapps.verifier.application.VerifyCredentialUseCase
 import org.vdcapps.verifier.domain.verification.InMemoryVerificationSessionRepository
@@ -33,9 +34,9 @@ private fun loadTrustedCertificates(path: String?): List<X509Certificate> {
     }
 }
 
-fun main(args: Array<String>): Unit =
-    io.ktor.server.netty.EngineMain
-        .main(args)
+fun main(args: Array<String>) {
+    EngineMain.main(args)
+}
 
 fun Application.module() {
     val config = environment.config

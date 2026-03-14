@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
     application
+    jacoco
 }
 
 group = "org.vdcapps.verifier"
@@ -23,6 +24,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 val ktorVersion = "3.0.3"
+val micrometerVersion = "1.13.9"
 val multipazVersion = "0.97.0"
 val kotlinxSerializationVersion = "1.7.3"
 val kotlinxCoroutinesVersion = "1.9.0"
@@ -49,6 +51,10 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.zxing:javase:3.5.3")
 
+    // Metrics (Micrometer + Prometheus)
+    implementation("io.ktor:ktor-server-metrics-micrometer:$ktorVersion")
+    implementation("io.micrometer:micrometer-registry-prometheus:$micrometerVersion")
+
     // Redis client
     implementation("redis.clients:jedis:5.2.0")
 
@@ -70,4 +76,13 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
 }

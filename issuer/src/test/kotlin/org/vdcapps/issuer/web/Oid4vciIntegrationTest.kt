@@ -403,6 +403,32 @@ class Oid4vciIntegrationTest {
             }
         }
 
+    @Test
+    fun `token レスポンスに DPoP-Nonce ヘッダーが含まれ c_nonce と同じ値である`() =
+        runTest {
+            val setup = TestSetup()
+            val issuanceSession = setup.createTestSession()
+
+            testApplication {
+                application { testModule(setup) }
+                val response =
+                    client.post("/token") {
+                        contentType(ContentType.Application.FormUrlEncoded)
+                        setBody(
+                            "grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code" +
+                                "&pre-authorized_code=${issuanceSession.preAuthorizedCode}",
+                        )
+                    }
+                val dpopNonce = response.headers["DPoP-Nonce"]
+                assertNotNull(dpopNonce, "DPoP-Nonce ヘッダーが存在すること")
+                assertTrue(dpopNonce.isNotEmpty())
+
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                val cNonce = body["c_nonce"]?.jsonPrimitive?.content
+                assertEquals(cNonce, dpopNonce, "DPoP-Nonce ヘッダーと c_nonce が同じ値であること")
+            }
+        }
+
     // ---- POST /credential ----
 
     @Test

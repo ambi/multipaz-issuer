@@ -6,12 +6,17 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 import io.ktor.server.freemarker.FreeMarker
+import io.ktor.server.metrics.micrometer.MicrometerMetrics
 import io.ktor.server.plugins.callid.CallId
 import io.ktor.server.plugins.callid.callIdMdc
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import io.micrometer.prometheusmetrics.PrometheusConfig
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
 import org.vdcapps.verifier.application.VerifyCredentialUseCase
@@ -54,6 +59,11 @@ fun Application.configureRouting(
         },
     )
 
+    val prometheusRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+    install(MicrometerMetrics) {
+        registry = prometheusRegistry
+    }
+
     install(FreeMarker) {
         templateLoader = ClassTemplateLoader(this::class.java.classLoader, "templates")
     }
@@ -80,5 +90,9 @@ fun Application.configureRouting(
     routing {
         configureHealthRoutes(checkReady)
         configureVerifierRoutes(baseUrl, verificationService, verifyCredentialUseCase)
+        // Prometheus スクレイプエンドポイント（監視システムからのアクセスを想定）
+        get("/metrics") {
+            call.respondText(prometheusRegistry.scrape())
+        }
     }
 }

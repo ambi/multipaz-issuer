@@ -67,7 +67,7 @@ dependencies {
     // Testing
     testImplementation(kotlin("test-junit5"))
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
-    testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("io.mockk:mockk:1.14.9")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion")
     testImplementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
     testImplementation("org.bouncycastle:bcprov-jdk18on:1.78.1")

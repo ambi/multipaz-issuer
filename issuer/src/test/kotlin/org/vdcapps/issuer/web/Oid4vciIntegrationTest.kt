@@ -20,8 +20,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.vdcapps.issuer.web.plugins.configureSerialization
-import org.vdcapps.issuer.web.routes.RateLimiter
 import org.vdcapps.issuer.web.routes.configureOid4vciRoutes
+import org.vdcapps.issuer.web.util.RateLimiter
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals

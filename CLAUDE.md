@@ -133,6 +133,7 @@ infrastructure/
   entra/EntraIdClient.kt                 # MS Graph API で displayName/surname/photo を取得
   multipaz/IssuerKeyStore.kt             # 発行者署名鍵 (P-256 EC) を PKCS12 に永続化、初回自動生成
   multipaz/PhotoIdBuilder.kt             # Multipaz API で IssuerNamespaces→MSO→COSE_Sign1 を組み立て
+  multipaz/ProofJwtValidator.kt          # OID4VCI proof JWT の検証（alg・署名・aud・nonce・iat）
   redis/RedisIssuanceSessionRepository.kt# Redis 実装（REDIS_URL 設定時に使用）
 
 application/
@@ -154,7 +155,8 @@ web/
   routes/Oid4vciRoutes.kt                # OID4VCI エンドポイント群
                                          # /issue: CSRF トークン検証・生年月日バリデーション
                                          # /token, /credential, /nonce: IP ベースのレート制限
-                                         # /credential: Content-Type 検証・JWT アルゴリズム検証
+                                         # /credential: Content-Type 検証・ProofJwtValidator 呼び出し
+  util/RateLimiter.kt                    # IP ベースのスライディングウィンドウ式レート制限 + clientIp()
 
 Application.kt                           # DI 相当の配線と module() 関数
                                          # HTTP クライアント（タイムアウト付き）、Redis pool 管理

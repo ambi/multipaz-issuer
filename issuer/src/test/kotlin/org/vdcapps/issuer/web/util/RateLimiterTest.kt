@@ -1,4 +1,4 @@
-package org.vdcapps.issuer.web.routes
+package org.vdcapps.issuer.web.util
 
 import kotlin.test.BeforeTest
 import kotlin.test.Test

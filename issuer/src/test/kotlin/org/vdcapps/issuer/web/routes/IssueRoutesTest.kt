@@ -28,6 +28,7 @@ import org.vdcapps.issuer.infrastructure.multipaz.IssuerKeyStore
 import org.vdcapps.issuer.infrastructure.multipaz.PhotoIdBuilder
 import org.vdcapps.issuer.web.plugins.UserSession
 import org.vdcapps.issuer.web.plugins.configureSerialization
+import org.vdcapps.issuer.web.util.RateLimiter
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals

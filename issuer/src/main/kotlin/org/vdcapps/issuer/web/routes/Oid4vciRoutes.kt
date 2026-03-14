@@ -3,7 +3,6 @@ package org.vdcapps.issuer.web.routes
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.client.j2se.MatrixToImageWriter
-import com.nimbusds.jose.jwk.ECKey
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.freemarker.FreeMarkerContent
@@ -36,59 +35,15 @@ import org.vdcapps.issuer.domain.credential.CredentialIssuanceService
 import org.vdcapps.issuer.domain.credential.IssuanceSession
 import org.vdcapps.issuer.domain.credential.NonceStore
 import org.vdcapps.issuer.infrastructure.multipaz.PhotoIdBuilder
+import org.vdcapps.issuer.infrastructure.multipaz.ProofJwtValidator
 import org.vdcapps.issuer.web.plugins.UserSession
+import org.vdcapps.issuer.web.util.RateLimiter
+import org.vdcapps.issuer.web.util.clientIp
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 
 private val logger = LoggerFactory.getLogger("Oid4vciRoutes")
 private val json = Json { ignoreUnknownKeys = true }
-
-/**
- * IP ベースのスライディングウィンドウ式レート制限。
- * キーは "<エンドポイント>:<IP>" の形式。
- * テストからリセットできるよう internal にする。
- */
-internal object RateLimiter {
-    private val windows = java.util.concurrent.ConcurrentHashMap<String, ArrayDeque<Long>>()
-    private const val WINDOW_MS = 60_000L
-
-    /** テスト用: すべてのウィンドウをクリアする。本番コードからは呼ばないこと。 */
-    fun clearForTesting() {
-        windows.clear()
-    }
-
-    fun isAllowed(
-        key: String,
-        maxPerWindow: Int,
-    ): Boolean {
-        val now = System.currentTimeMillis()
-        // マップが肥大化した場合にエントリを掃除する
-        if (windows.size > 50_000) {
-            val cutoff = now - WINDOW_MS
-            windows.entries.removeIf { (_, deque) ->
-                synchronized(deque) { deque.isEmpty() || deque.last() < cutoff }
-            }
-        }
-        val deque = windows.getOrPut(key) { ArrayDeque() }
-        synchronized(deque) {
-            val cutoff = now - WINDOW_MS
-            while (deque.isNotEmpty() && deque.first() < cutoff) deque.removeFirst()
-            if (deque.size >= maxPerWindow) return false
-            deque.addLast(now)
-            return true
-        }
-    }
-}
-
-/** リクエスト元 IP を取得する。リバースプロキシ経由の場合は X-Forwarded-For を優先。 */
-private fun io.ktor.server.application.ApplicationCall.clientIp(): String {
-    val forwardedFor = request.headers["X-Forwarded-For"]
-    if (!forwardedFor.isNullOrBlank()) {
-        val first = forwardedFor.split(",").firstOrNull()?.trim()
-        if (!first.isNullOrBlank()) return first
-    }
-    return request.local.remoteHost
-}
 
 fun Route.configureOid4vciRoutes(
     baseUrl: String,
@@ -97,6 +52,8 @@ fun Route.configureOid4vciRoutes(
     photoIdBuilder: PhotoIdBuilder,
     nonceStore: NonceStore,
 ) {
+    val proofJwtValidator = ProofJwtValidator(baseUrl, photoIdBuilder, nonceStore)
+
     // ========== ブラウザ UI ==========
 
     // プロフィールフォーム送信 → セッション作成 → QR コードページへリダイレクト
@@ -371,7 +328,7 @@ fun Route.configureOid4vciRoutes(
 
         val holderPublicKey =
             try {
-                validateProofJwt(proofJwt, baseUrl, photoIdBuilder, nonceStore)
+                proofJwtValidator.validate(proofJwt)
             } catch (e: Exception) {
                 logger.warn("proof JWT 検証失敗: ${e.message}")
                 call.respond(
@@ -431,68 +388,6 @@ private fun JsonObject.extractProofJwt(): String? {
     val proofObj = get("proof")?.jsonObject ?: return null
     if (proofObj["proof_type"]?.jsonPrimitive?.content != "jwt") return null
     return proofObj["jwt"]?.jsonPrimitive?.content
-}
-
-/**
- * proof JWT を検証し、holder の公開鍵を返す。
- *
- * 検証内容:
- * - ヘッダーの jwk が EC P-256 鍵であること
- * - JWT 署名が jwk で正しく検証できること
- * - aud が baseUrl であること
- * - nonce の HMAC 署名が正しく有効期限内であること
- * - iat が 5 分以内であること
- */
-private fun validateProofJwt(
-    jwt: String,
-    baseUrl: String,
-    photoIdBuilder: PhotoIdBuilder,
-    nonceStore: NonceStore,
-): org.multipaz.crypto.EcPublicKey {
-    val signedJwt =
-        com.nimbusds.jwt.SignedJWT
-            .parse(jwt)
-    val header = signedJwt.header
-    val claims = signedJwt.jwtClaimsSet
-
-    // アルゴリズム検証: ES256 のみ許可（alg:none 攻撃・アルゴリズム混同攻撃を防止）
-    if (header.algorithm != com.nimbusds.jose.JWSAlgorithm.ES256) {
-        throw IllegalArgumentException("proof JWT の alg が不正です: ${header.algorithm}（ES256 のみ許可）")
-    }
-
-    val ecJwk =
-        (header.jwk as? ECKey)
-            ?: throw IllegalArgumentException("proof JWT header に EC JWK が含まれていません")
-
-    if (!signedJwt.verify(
-            com.nimbusds.jose.crypto
-                .ECDSAVerifier(ecJwk.toECPublicKey()),
-        )
-    ) {
-        throw IllegalArgumentException("proof JWT の署名検証に失敗しました")
-    }
-
-    if (claims.audience.none { it == baseUrl }) {
-        throw IllegalArgumentException("proof JWT の aud が不正です: ${claims.audience}")
-    }
-
-    val nonce =
-        claims.getStringClaim("nonce")
-            ?: throw IllegalArgumentException("proof JWT に nonce がありません")
-    if (!nonceStore.verify(nonce)) {
-        throw IllegalArgumentException("proof JWT の nonce が無効または期限切れです")
-    }
-
-    val iat = claims.issueTime
-    if (iat == null || (System.currentTimeMillis() - iat.time) > 5 * 60 * 1000) {
-        throw IllegalArgumentException("proof JWT が古すぎます (iat)")
-    }
-
-    val ecPoint = ecJwk.toECPublicKey().w
-    return photoIdBuilder.ecPublicKeyFromCoordinates(
-        ecPoint.affineX.toByteArray(),
-        ecPoint.affineY.toByteArray(),
-    )
 }
 
 /** openid-credential-offer:// URI を inline 形式で構築する（OID4VCI §4.1.1）。 */

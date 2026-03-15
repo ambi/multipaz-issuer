@@ -23,11 +23,11 @@ tasks.withType<JavaCompile>().configureEach {
     targetCompatibility = "21"
 }
 
-val ktorVersion = "3.0.3"
+val ktorVersion = "3.4.1"
 val micrometerVersion = "1.13.9"
-val multipazVersion = "0.97.0"
+val multipazVersion = "0.97.1"
 val kotlinxSerializationVersion = "1.7.3"
-val kotlinxCoroutinesVersion = "1.9.0"
+val kotlinxCoroutinesVersion = "1.10.2"
 
 dependencies {
     // Multipaz: mdoc verification utilities
@@ -60,17 +60,17 @@ dependencies {
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.12")
-    implementation("net.logstash.logback:logstash-logback-encoder:8.0")
+    implementation("net.logstash.logback:logstash-logback-encoder:9.0")
     // logback.xml の <if> 条件分岐に必要
     runtimeOnly("org.codehaus.janino:janino:3.1.12")
 
     // Testing
     testImplementation(kotlin("test-junit5"))
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
-    testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("io.mockk:mockk:1.14.9")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion")
-    testImplementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
-    testImplementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    testImplementation("org.bouncycastle:bcpkix-jdk18on:1.83")
+    testImplementation("org.bouncycastle:bcprov-jdk18on:1.83")
     testImplementation("org.multipaz:multipaz-doctypes:$multipazVersion")
 }
 

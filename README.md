@@ -623,6 +623,26 @@ install(XForwardedHeaders) {
 
 `TRUSTED_PROXY_COUNT`（デフォルト 1）が信頼するプロキシ数に対応する。`X-Forwarded-For` の末尾 N 個をプロキシが追記した値とみなし、その直前のエントリをクライアント IP とする。攻撃者がヘッダーに任意の値を付けて送信しても、ロードバランサーが末尾に実際の接続元 IP を追記するため、正しいクライアント IP を取得できる。
 
+### HTTP セキュリティヘッダー（CSP）
+
+Issuer・Verifier ともに以下のセキュリティヘッダーを全レスポンスに付与する。
+
+| ヘッダー | 値 |
+| -------- | -- |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-XSS-Protection` | `1; mode=block` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'` |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`（HTTPS 時のみ） |
+
+> **未対応: CSP nonce によるインラインスクリプト制限**
+>
+> 現在の CSP は `'unsafe-inline'` を使用しており、インラインスクリプト・スタイルを無制限に許可している。
+> nonce ベースの CSP（`script-src 'nonce-{random}'` 形式）に移行すると XSS 耐性が大幅に向上するが、
+> FreeMarker テンプレートへの nonce 埋め込みおよびリクエストごとの nonce 生成・伝播が必要なため、
+> 現時点では対応を保留している。
+
 ### Verifier の署名検証
 
 `MdocVerifier` は以下を検証する。
